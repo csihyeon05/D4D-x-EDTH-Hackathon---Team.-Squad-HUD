@@ -1,0 +1,5 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "2026-10-10_19-26-28") (type "KiCad") (uri "/home/just_grassy/Desktop/01.Home/01.Projects/git/d4d/D4D-x-EDTH-Hackathon---Team.-Squad-HUD/pcb/resources/nucode/KiCADv6/2026-10-10_19-26-28.kicad_sym") (options "") (descr ""))
+	(lib (name "D4D_Sensors") (type "KiCad") (uri "/home/just_grassy/Desktop/01.Home/01.Projects/git/d4d/D4D-x-EDTH-Hackathon---Team.-Squad-HUD/pcb/resources/D4D_Sensors.kicad_sym") (options "") (descr ""))
+)
