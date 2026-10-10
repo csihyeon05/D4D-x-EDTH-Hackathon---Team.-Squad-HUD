@@ -78,6 +78,14 @@ void PulseSensor::sample() {
 
   // One missed beat must not double the refractory period and hide every other beat.
   const uint16_t cadence = ibi_ < confirmedIbi_ ? ibi_ : confirmedIbi_;
+  // Forget an old large pulse before it can mask a smaller subsequent pulse.
+  // Follow the local baseline while preserving the minimum swing requirement.
+  if (n > (cadence / 5) * 3) {
+    const float decay = dt / (150.0f + dt);
+    thresh_ += decay * (sig - thresh_);
+    peak_ += decay * (sig - peak_);
+    trough_ += decay * (sig - trough_);
+  }
   if (sig < thresh_ && n > (cadence / 5) * 3 && sig < trough_) trough_ = sig;
   if (sig > thresh_ && sig > peak_) peak_ = sig;
 

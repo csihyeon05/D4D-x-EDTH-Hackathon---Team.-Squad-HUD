@@ -171,6 +171,14 @@ int main() {
     irregular.sample();
     assert(irregular.bpm() == 0);
   }
+  // Clean pulses remain detectable after a large contact-amplitude change.
+  PulseSensor fading(3);
+  for (nowMs = 0; nowMs < 30000; nowMs += 2) {
+    const int amplitude = (nowMs / 10000) % 2 == 0 ? 800 : 80;
+    adc = 2048 + ((nowMs % 1000 >= 500 && nowMs % 1000 < 530) ? amplitude : 0);
+    fading.sample();
+    if (nowMs > 5000) assert(fading.bpm() >= 58 && fading.bpm() <= 62);
+  }
   // Mains-frequency interference alone must not look like fast heartbeats.
   for (int hz : {50, 60, 100, 120}) {
     PulseSensor interference(3), contaminated(3);

@@ -44,7 +44,7 @@ void acquire(void*) {
       pulse.sample();
       const uint16_t raw = pulse.raw();
       const uint32_t ms = millis();
-      PulseTrace::sample(raw, ms);
+      PulseTrace::sample(raw, pulse.bpm(), ms);
       if (raw < pulseMin) pulseMin = raw;
       if (raw > pulseMax) pulseMax = raw;
       if (pulse.filtered() < filteredMin) filteredMin = pulse.filtered();

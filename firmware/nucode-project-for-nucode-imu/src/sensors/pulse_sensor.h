@@ -40,7 +40,7 @@ private:
   // Detection state (the signal is normalized to a 10-bit scale).
   uint32_t sampleCounter_ = 0;
   uint32_t lastBeat_ = 0;
-  int thresh_ = 512, peak_ = 512, trough_ = 512, amp_ = 100;
+  float thresh_ = 512, peak_ = 512, trough_ = 512, amp_ = 100;
   bool pulse_ = false, first_ = true;
   uint16_t rate_[5] = {0};
 };

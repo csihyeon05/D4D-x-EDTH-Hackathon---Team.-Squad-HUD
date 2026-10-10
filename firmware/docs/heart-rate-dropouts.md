@@ -38,3 +38,24 @@ interference, recorded no-contact noise, clipping, timestamp wrap, display expir
 recovery, and missing-HR alerts. This does not establish clinical accuracy or
 prove stable optical contact on the physical sensor. The commander must run the
 updated backend and frontend together to show the new status fields.
+
+## Amplitude recovery
+
+A separate regression uses clean 60 BPM pulses with raw amplitude alternating
+between 800 and 80 ADC counts every ten seconds. The previous detector lost its
+rate despite the continuing pulses. During the latter part of an expected beat
+interval, the threshold and peak/trough envelope now relax toward the local
+filtered signal with a 150 ms time constant. This follows a changing baseline
+and forgets old large peaks without reducing the minimum four-count swing gate.
+The regression maintains 58-62 BPM through both amplitude transitions. Existing
+no-contact recordings, mains interference, clipping, and cadence tests still
+pass. A synthetic regression does not establish the physical cause of every
+reported dropout.
+
+An optional `CFG_PULSE_TRACE=1` diagnostic freezes a 2048-sample rolling raw ADC
+buffer when published BPM first changes from nonzero to unavailable. It reports
+`PTRACE_TIME` and indexed `PTRACE` hex rows after acquisition stops. At 500 Hz,
+the buffer spans about four seconds. Missing log rows must be detected before
+replaying the trace; timestamps bound the window but do not encode sample jitter.
+The production build default remains trace-disabled. Diagnostic output finishes
+after one capture and does not repeatedly flood the serial link.
