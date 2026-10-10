@@ -35,6 +35,7 @@ void setup() {
   LOG("[main] ready imu=%u analog=%u ble=%u\n", imu.ok(), analogReady, bleReady);
 }
 void loop() {
+  if (bleReady) ble.poll();
   if (CFG_GPS) gps.poll();
   if (retryTick.due(uint32_t(millis() * 1000U)) && !imu.active()) imu.begin();
   imu.poll();
@@ -75,6 +76,7 @@ void loop() {
     StatusPacket packet{millis(), 4, flags, ble.dropped(), sampleGaps};
     if (bleReady) ble.sendStatus(packet);
     SerialTelemetry::print(packet);
+    LOG("BLE_STATS,requests=%lu,dropped=%lu\n", (unsigned long)ble.txRequests(), (unsigned long)ble.dropped());
     LOG("IMU_STATS,samples=%lu,read_errors=%lu,starts=%lu\n", (unsigned long)imu.samples(), (unsigned long)imu.readErrors(), (unsigned long)imu.restarts());
     LOG("IMU_STATE,mode=%s,state=%u,fifo_resets=%lu\n", CFG_IMU_DMP ? "DMP" : "raw", unsigned(imu.state()), (unsigned long)imu.fifoResets());
   }

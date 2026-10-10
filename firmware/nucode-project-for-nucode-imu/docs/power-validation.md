@@ -50,3 +50,7 @@ Measure acceleration magnitude and gyro bias with the sensor stationary, then ve
 - TMP36 was enabled on PB1/A4 after the user confirmed VCC=3.3V, VOUT=PB1, and common ground. Pulse sampling is separately disabled so an unconnected input cannot generate misleading BPM.
 - Native firmware, LSM6DS3, hardware I2C simulation, and all eight Python tests passed. The temperature-enabled build uses 860924 bytes.
 - Vendor tools are now isolated per build/upload; the vendor upload recipe otherwise selects its tool-directory image instead of honoring the input-file argument.
+
+## IMU and TMP36 Concurrent Validation
+
+The temperature-enabled upload succeeded. A 180-second serial capture completed: at 179 seconds there were 9,313 IMU samples, zero read errors, starts=1, and zero analog sampling gaps. TMP36 produced 178 valid reports: 22.20 C initially, 34.67 C peak after the user held the sensor, and 22.87 C finally. This validates acquisition and thermal response, not calibrated absolute accuracy. The startup -32768 sentinel precedes the first average. BLE delivery was not tested in this run. See [the full capture](validation/2026-10-10-imu-tmp36.log).

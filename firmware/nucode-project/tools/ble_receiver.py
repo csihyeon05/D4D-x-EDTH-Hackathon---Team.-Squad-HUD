@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""NUCODE-HUD receiver with reconnect, protocol validation and optional JSONL recording."""
+"""NUS sensor receiver with reconnect, protocol validation and optional JSONL recording."""
 import argparse
 import asyncio
 import json
 import sys
 import time
 from contextlib import nullcontext
-from protocol import SERVICE, UUIDS, decode
+from nus_protocol import SERVICE, TX, StreamDecoder
 
 
 async def receive(args, output):
@@ -28,25 +28,26 @@ async def receive(args, output):
             received = time.monotonic()
             loop = asyncio.get_running_loop()
             error = None
-            def callback(kind):
+            decoder = StreamDecoder()
+            def callback():
                 def on_packet(_, data):
                     nonlocal received, error
                     try:
-                        packet = decode(kind, data)
-                        packet["received_at"] = time.time()
-                        latest[kind] = (time.monotonic(), packet)
-                        received = time.monotonic()
-                        if output:
-                            output.write(json.dumps(packet, ensure_ascii=False) + "\n")
+                        for packet in decoder.feed(data):
+                            packet["received_at"] = time.time()
+                            packet["address"] = device.address
+                            latest[packet["type"]] = (time.monotonic(), packet)
+                            received = time.monotonic()
+                            if output:
+                                output.write(json.dumps(packet, ensure_ascii=False) + "\n")
                     except (ValueError, OSError) as exc:
                         error = exc
                         disconnected.set()
                 return on_packet
             async with BleakClient(device, disconnected_callback=lambda _: loop.call_soon_threadsafe(disconnected.set)) as client:
                 if client.services.get_service(SERVICE) is None:
-                    raise ValueError("보드의 서비스 UUID가 프로토콜 v3과 다릅니다.")
-                for kind, uuid in UUIDS.items():
-                    await client.start_notify(uuid, callback(kind))
+                    raise ValueError("NUS service is missing.")
+                await client.start_notify(TX, callback())
                 print(f"Connected: {device.address}", file=sys.stderr)
                 retry = 2
                 while not disconnected.is_set():
@@ -80,7 +81,7 @@ async def receive(args, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--name", default="NUCODE-HUD")
+    parser.add_argument("--name", default="NU87-1")
     parser.add_argument("--address", help="Specific device address (macOS: UUID)")
     parser.add_argument("--jsonl", help="Append every notification to a JSONL file")
     args = parser.parse_args()

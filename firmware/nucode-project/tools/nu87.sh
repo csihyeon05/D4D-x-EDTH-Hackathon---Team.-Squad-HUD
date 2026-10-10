@@ -16,15 +16,36 @@ case "${1:-build}" in
     exec "$cli" core install realtek:AmebaD@3.1.9 --additional-urls "$index"
     ;;
   build|upload)
-    mkdir -p .build/nu87_hud .build/output
-    rm -rf .build/nu87_hud/src
-    cp -R src .build/nu87_hud/src
-    printf '#include <BLEDevice.h>\n' > .build/nu87_hud/nu87_hud.ino
-    "$cli" compile --fqbn "$fqbn" --build-path "$root/.build/output" \
-      --build-property "compiler.c.extra_flags=-I$root/.build/output/sketch/src" .build/nu87_hud
+    # Vendor recipes do not reliably quote paths containing spaces.
+    # Stage in a private space-free directory; keep final artifacts in the project.
+    build_root=$(mktemp -d /tmp/nu87-build.XXXXXX)
+    trap 'rm -rf "$build_root"' EXIT HUP INT TERM
+    mkdir -p "$build_root/nu87_hud" "$build_root/output" "$root/.build/output"
+    cp -R src "$build_root/nu87_hud/src"
+    printf '#include <BLEDevice.h>\n' > "$build_root/nu87_hud/nu87_hud.ino"
+    # Realtek recipes ignore --input-file and use images in their tool directory.
+    # Isolate that directory so another Arduino project cannot replace our image.
+    properties=$("$cli" compile --fqbn "$fqbn" --show-properties=expanded "$build_root/nu87_hud")
+    vendor_tools=$(printf '%s\n' "$properties" | sed -n 's/^runtime.tools.ameba_d_tools.path=//p')
+    if [ ! -d "$vendor_tools" ]; then echo 'Cannot locate Realtek image tools.' >&2; exit 1; fi
+    mkdir "$build_root/vendor-tools"
+    cp -R "$vendor_tools/." "$build_root/vendor-tools/"
+    "$cli" compile --fqbn "$fqbn" --build-property "runtime.tools.ameba_d_tools.path=$build_root/vendor-tools" --build-path "$build_root/output" \
+      --build-property "compiler.c.extra_flags=-I$build_root/output/sketch/src" "$build_root/nu87_hud"
+    cp "$build_root/output/km0_km4_image2.bin" "$root/.build/output/"
     if [ "${1:-build}" = upload ]; then
       if [ -z "${2:-}" ]; then echo 'Usage: tools/nu87.sh upload /dev/ttyUSB0' >&2; exit 2; fi
-      "$cli" upload --fqbn "$fqbn" --port "$2" --input-file .build/output/km0_km4_image2.bin .build/nu87_hud
+      # The vendor uploader can return zero even when opening the port fails.
+      upload_log="$build_root/upload.log"
+      if ! "$cli" upload --fqbn "$fqbn" --upload-property "runtime.tools.ameba_d_tools.path=$build_root/vendor-tools" --port "$2" --input-file "$build_root/output/km0_km4_image2.bin" "$build_root/nu87_hud" >"$upload_log" 2>&1; then
+        cat "$upload_log"
+        exit 1
+      fi
+      cat "$upload_log"
+      if ! grep -q 'All images are sent successfully!' "$upload_log"; then
+        echo 'Upload was not confirmed by the device uploader.' >&2
+        exit 1
+      fi
     fi
     ;;
   monitor)

@@ -90,29 +90,13 @@ QUAT,t_ms=15000,w_q30=1073741824,x_q30=0,y_q30=0,z_q30=0
 
 9600 baud supports about 960 payload bytes/second with 8N1 framing. Printing readable IMU lines at 50Hz would exceed that limit. BLE retains its higher update rates independently.
 
-## BLE Protocol v3 and PC Receiver
+## BLE Transport
 
-Device name: `NUCODE-HUD`. Protocol v3 uses a **new UUID namespace** so previous raw-mode receivers cannot silently misinterpret the changed MPU6050 scales. Update the PC receiver together with the firmware.
-
-Service: `76B92001-7C4D-4F21-9B63-136A2D8E507C`. Notify characteristics use the same suffix with prefixes 76B92002 (IMU), 76B92003 (vitals), 76B92004 (GPS), and 76B92005 (status), and 76B92006 (orientation). One PC connection is supported. All packets fit the mandatory BLE MTU; structs are packed and little-endian.
-
-| Packet | Rate | Python struct | Meaning |
-|---|---|---|---|
-| IMU | 50Hz target | `<I6h` | uptime ms, accel XYZ raw / 16384 = g, gyro XYZ raw / 16.4 = degrees/s |
-| Orientation | 50Hz target | `<I4i` | uptime ms, quaternion w/x/y/z in signed Q30 (divide by 1073741824) |
-| Vitals | 5Hz | `<IhHH` | uptime ms, temperature x100 C, BPM, pulse raw 0..4095 |
-| GPS | 1Hz | `<IiiiHBB` | uptime ms, lat/lon x1e7, altitude cm, speed cm/s, fix, satellites |
-| Status | 1Hz | `<IHHII` | uptime ms, version=3, flags, local BLE failures, sample gaps |
-
-Temperature -32768 means invalid; BPM 0 means unavailable. Status flags: bit0 IMU online, bit1 analog fresh, bit2 temperature valid, bit3 BPM available, bit4 GPS fix, bit5 GPS enabled, bit6 IMU initializing/settling, bit7 raw mode. GPS coordinates are invalid when fix=0. BLE delivery is best effort; the Realtek notify API does not report radio delivery, and `tx_dropped` only counts detectable local failures. Actual rates and range require hardware measurement.
+The active transport is Nordic UART Service (NUS), matching the supplied NU40 connection example. MPU6050 advertises `NU87-1`; NU-IMU advertises `NU87-2`. Sensor JSON lines are fragmented into at most 20-byte notifications, with CCCD gating, bounded queues and disconnect cleanup. Read the [wire contract and receiver integration notes](docs/nus-telemetry.md) before changing the receiver. The former custom binary service is no longer advertised.
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r tools/requirements.txt
-.venv/bin/python tools/ble_receiver.py --jsonl readings.jsonl
+python tools/ble_receiver.py --name NU87-1 --jsonl readings.jsonl
 ```
-
-The receiver validates packet lengths/version, decodes units, marks stale data, writes JSONL, and reconnects after link loss. See `--help` for explicit device addressing. Data is sent using an open GATT service; this prototype does not add application authentication or encryption.
 
 ## Tests and Validation
 

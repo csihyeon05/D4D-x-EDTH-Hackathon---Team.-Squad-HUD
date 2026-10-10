@@ -5,6 +5,8 @@
 class BleLink {
 public:
   bool begin();
+  void poll();
+  uint32_t txRequests() const;
   bool connected() const;
   bool sendOrientation(const OrientationPacket& p);
   bool sendImu(const ImuPacket& p);

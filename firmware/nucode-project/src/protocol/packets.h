@@ -1,8 +1,8 @@
 #pragma once
 #include <stdint.h>
 
-// BLE packet definitions. All fields are little-endian, with no padding.
-// Keep these definitions synchronized with the PC decoder in tools/protocol.py.
+// Internal sensor records. Packed layouts are retained for legacy binary decoding.
+// Active NUS transport serializes these fields as JSON via nus_json.h.
 
 // IMU packet (16 bytes)
 //  accel: ±2 g -> 16384 LSB/g, gyro: ±2000 dps -> 16.4 LSB/(deg/s)

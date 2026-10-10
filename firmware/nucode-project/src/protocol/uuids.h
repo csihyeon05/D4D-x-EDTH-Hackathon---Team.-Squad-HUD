@@ -1,6 +1,6 @@
 #pragma once
 
-// Project-specific UUIDs; intentionally distinct from Nordic UART Service.
+// Legacy binary UUIDs retained for historical decoder tests; no longer advertised.
 #define UUID_SERVICE  "76B92001-7C4D-4F21-9B63-136A2D8E507C"
 #define UUID_IMU      "76B92002-7C4D-4F21-9B63-136A2D8E507C"
 #define UUID_VITALS   "76B92003-7C4D-4F21-9B63-136A2D8E507C"
@@ -9,3 +9,8 @@
 #define UUID_STATUS "76B92005-7C4D-4F21-9B63-136A2D8E507C"
 
 #define UUID_ORIENTATION "76B92006-7C4D-4F21-9B63-136A2D8E507C"
+
+// Active Nordic UART Service, matching the proven NU40 connection example.
+#define UUID_NUS_SERVICE "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define UUID_NUS_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define UUID_NUS_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"

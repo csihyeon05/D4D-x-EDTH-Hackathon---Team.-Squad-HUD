@@ -51,7 +51,12 @@ constexpr uint32_t VITALS_PERIOD_US = 200000;  // 5 Hz (temperature and pulse te
 constexpr uint32_t GPS_PERIOD_US    = 1000000; // 1 Hz (latest GPS telemetry)
 
 // ---- BLE ----
-constexpr char BLE_DEVICE_NAME[] = "NUCODE-HUD";
+constexpr char BLE_DEVICE_NAME[] = "NU87-2";
+constexpr uint8_t BLE_NODE_ID = 2;
+constexpr char IMU_MODEL_NAME[] = "lsm6ds3";
+// Sensor acquisition remains fast; NUS publishes bounded-rate snapshots.
+constexpr uint32_t BLE_SENSOR_PERIOD_MS = 200;
+constexpr uint32_t BLE_CHUNK_PERIOD_MS = 10;
 constexpr uint32_t MAIN_IDLE_MS = 5;
 // GPS is not fitted; enable when a compatible UART NMEA module is connected.
 #ifndef CFG_GPS

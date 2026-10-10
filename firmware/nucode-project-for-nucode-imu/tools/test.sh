@@ -1,10 +1,12 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
+ble_binary=$(mktemp /tmp/nucode-ble-tests.XXXXXX)
+nus_binary=$(mktemp /tmp/nucode-nus-tests.XXXXXX)
 test_binary=$(mktemp /tmp/nucode-tests.XXXXXX)
 dmp_binary="${test_binary}.dmp"
 raw_binary="${test_binary}.raw"
-trap 'rm -f "$test_binary" "$dmp_binary" "$raw_binary"' EXIT HUP INT TERM
+trap 'rm -f "$ble_binary" "$nus_binary" "$test_binary" "$dmp_binary" "$raw_binary"' EXIT HUP INT TERM
 c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -fno-omit-frame-pointer -Itest/native -Isrc \
   test/native/test_firmware.cpp src/sensors/nmea_parser.cpp \
@@ -19,4 +21,8 @@ c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -fno-omit-frame-pointer -DBOARD_AMB26 -Itest/hardware -Itest/native -Isrc \
   test/hardware/test_hardware.cpp src/comm/i2c_hardware.cpp -o "$dmp_binary"
 "$dmp_binary"
+c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Isrc test/native/test_nus.cpp -o "$nus_binary"
+"$nus_binary"
+c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -Itest/ble -Itest/native -Isrc test/ble/test_ble.cpp src/comm/ble_link.cpp -o "$ble_binary"
+"$ble_binary"
 python3 -m unittest discover -s test -p 'test_*.py' -v

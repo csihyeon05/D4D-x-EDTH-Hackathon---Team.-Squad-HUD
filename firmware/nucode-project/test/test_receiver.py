@@ -7,7 +7,7 @@ import types
 import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "tools"))
-from ble_receiver import receive
+from ble_receiver_legacy import receive
 from protocol import UUIDS
 
 
@@ -37,7 +37,7 @@ class ReceiverTests(unittest.IsolatedAsyncioTestCase):
         async def cancel_sleep(_): raise asyncio.CancelledError
         args = types.SimpleNamespace(address=None, name="NUCODE-HUD")
         output = io.StringIO()
-        with patch.dict(sys.modules, {"bleak": module, "bleak.exc": exc_module}), patch("ble_receiver.asyncio.sleep", cancel_sleep):
+        with patch.dict(sys.modules, {"bleak": module, "bleak.exc": exc_module}), patch("ble_receiver_legacy.asyncio.sleep", cancel_sleep):
             with self.assertRaises(RuntimeError if bad else asyncio.CancelledError):
                 await receive(args, output)
         return subscriptions, output.getvalue()

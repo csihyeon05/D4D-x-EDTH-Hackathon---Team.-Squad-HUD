@@ -54,24 +54,12 @@ These lines illustrate the format, not measured results. States: 0 offline, 1 re
 
 The onboard blue LED (PA14) is steady during boot, pulses once every two seconds when ready, twice when BLE-connected, three times for an IMU fault, and blinks rapidly for a subsystem failure. Red/green remain unused. LED timing stops if the main loop stalls.
 
-## BLE Protocol v4
+## BLE Transport
 
-Device name is `NUCODE-HUD`. Service UUID is `76B93001-7C4D-4F21-9B63-136A2D8E507C`. The new namespace prevents old MPU6050 receivers from silently using incorrect scale factors. Update the PC receiver together with firmware.
-
-| Characteristic prefix | Packet | Little-endian layout | Current behavior |
-|---|---|---|---|
-| 76B93002 | IMU | `<I6h` | Up to 50 Hz; milliseconds, accel XYZ, gyro XYZ |
-| 76B93003 | Vitals | `<IhHH` | Temperature enabled; pulse fields zero |
-| 76B93004 | GPS | `<IiiiHBB` | Disabled |
-| 76B93005 | Status | `<IHHII` | 1 Hz; milliseconds, version=4, flags, local drops, analog gaps |
-| 76B93006 | Orientation | `<I4i` | Reserved; no notifications |
-
-Each UUID uses the service suffix. Status bits: 0 IMU online, 1 analog fresh, 2 temperature valid, 3 BPM valid, 4 GPS fix, 5 GPS enabled, 6 IMU initializing, 7 raw mode. The receiver converts IMU scales to g and degrees/s. The vendor notify API does not report radio delivery; local-drop counters do not prove lossless BLE delivery.
+The active transport is Nordic UART Service (NUS), matching the supplied NU40 connection example. MPU6050 advertises `NU87-1`; NU-IMU advertises `NU87-2`. Sensor JSON lines are fragmented into at most 20-byte notifications, with CCCD gating, bounded queues and disconnect cleanup. Read the [wire contract and receiver integration notes](docs/nus-telemetry.md) before changing the receiver. The former custom binary service is no longer advertised.
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r tools/requirements.txt
-.venv/bin/python tools/ble_receiver.py --jsonl readings.jsonl
+python tools/ble_receiver.py --name NU87-2 --jsonl readings.jsonl
 ```
 
 ## Validation and References
