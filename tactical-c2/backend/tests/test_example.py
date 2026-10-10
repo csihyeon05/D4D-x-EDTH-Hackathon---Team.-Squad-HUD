@@ -99,9 +99,8 @@ def test_validate_rejects_hallucinations(personas):
         {"action": "WITHDRAW_FROM_SECTOR", "sector": "Z9"},
         {"action": "BUDDY_AID", "targets": ["S3"], "reason": "S12 is closest"},
     ], f)
-    assert [v["action"] for v in valid] == ["MEDEVAC", "BUDDY_AID"]
-    assert valid[1]["reason"] == ""
-    assert len(rejected) == 3
+    assert [v["action"] for v in valid] == ["MEDEVAC"]   # BUDDY_AID S3 would send a helper into contact
+    assert len(rejected) == 4
 
 
 def test_recommend_falls_back_without_llm(personas, monkeypatch):
@@ -165,3 +164,14 @@ def test_brief_guard_rejects_moved_conditions(personas):
     assert not _grounded("S6 suspected hit or fall. S8: heat strain.", f)   # S8 has no alert
     assert not _grounded("Critical: S2 is down.", f)                       # S2 is not CRITICAL
     assert not _grounded("S42 is missing.", f)                             # unknown soldier
+
+
+def test_no_buddy_aid_into_contact(personas):
+    sim = example.ExampleSim()
+    sim.start("ambush", autorun=False)
+    _run(sim, example.PATROL_S + 40)
+    f = sim.facts()
+    valid, rejected = validate([{"action": "BUDDY_AID", "targets": ["S1", "S2"]}], f)
+    assert not valid and "POSSIBLE_CONTACT" in rejected[0]
+    from app.briefing import _grounded
+    assert not _grounded("S5-S8 are moving with stress alerts.", f)

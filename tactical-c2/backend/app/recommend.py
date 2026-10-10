@@ -135,7 +135,7 @@ def _target_fits(action: str, s: dict | None) -> bool:
     if action == "MEDEVAC":
         return bool(_codes(s) & _CASUALTY)
     if action == "BUDDY_AID":
-        return s["severity"] == "CRITICAL"
+        return s["severity"] == "CRITICAL"  # sector under contact is checked in _not_applicable
     if action == "REST_AND_COOL":
         return AlertCode.HEAT_STRAIN in _codes(s) or s["severity"] == "WATCH"
     return True
@@ -143,6 +143,12 @@ def _target_fits(action: str, s: dict | None) -> bool:
 
 def _not_applicable(action: str, targets: list[str], sector: str | None, facts: dict) -> str | None:
     """Squad-level catalog preconditions, checked against the facts. None = applicable."""
+    if action == "BUDDY_AID":
+        by = {s["callsign"]: s for s in facts["flagged_soldiers"]}
+        contact = {e["sector"] for e in facts["squad_events"] if e["kind"] == "POSSIBLE_CONTACT"}
+        hot = [c for c in targets if by.get(c, {}).get("sector") in contact]
+        return (f"{', '.join(hot)} in a sector with POSSIBLE_CONTACT (helpers would move into it; "
+                "evacuate or withdraw first)") if hot else None
     if action == "WITHDRAW_FROM_SECTOR":
         named = {e["sector"] for e in facts["squad_events"]}
         return None if sector in named else f"no squad event in {sector}"

@@ -77,6 +77,8 @@ _CALLSIGN = re.compile(r"\bS(\d{1,3})\b")
 
 _CLAIMS = {  # word in a sentence -> alert codes that must back it for a soldier named in that sentence
     "heat": {AlertCode.HEAT_STRAIN},
+    "stress": {AlertCode.HR_SPIKE_IMMOBILE, AlertCode.SITREP_CONTACT, AlertCode.FALL_IMMOBILE},
+    "spike": {AlertCode.HR_SPIKE_IMMOBILE},
     "fall": {AlertCode.FALL_IMMOBILE},
     "consciousness": {AlertCode.HR_LOW_IMMOBILE},
     "sos": {AlertCode.SITREP_SOS},
