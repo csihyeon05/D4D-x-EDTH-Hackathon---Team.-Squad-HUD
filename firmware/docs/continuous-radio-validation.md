@@ -70,3 +70,17 @@ RADIO,gap=2,q=64,req=63,done=63,fail=0,timeout=0,start=1,wait=0,cause=0,age=982
 
 The same received bytes are replayed through the tactical-c2 serial reader
 for REST/WebSocket handoff; this does not substitute for a physical NU40 test.
+
+## Subsequent 30-second finger-contact check
+
+The user voluntarily reapplied a finger after filtering. A 27-second PC scan
+received 25 distinct packets. Startup and node seconds 7-8 included unavailable
+HR; received packets from seconds 10-27 contained BPM 52-80, ending at 71.
+The serial capture continued for 30 seconds and reached 99 BPM near its end.
+At second 29: gap=2, req=28, done=28, fail=0, timeout=0, start=1.
+IMU read_errors=0 and starts=1. The user was told to remove their finger at
+the end of the 30-second capture.
+
+This verifies physical contact can produce a BPM that reaches the radio and
+backend. The rate varied substantially; it does not establish stable or accurate
+heart rate, and no simultaneous reference sensor was available.
