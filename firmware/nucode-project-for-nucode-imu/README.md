@@ -192,8 +192,16 @@ sample count and BPM. A narrow range without a periodic waveform cannot support
 a reliable BPM; missing readings remain unknown instead of retaining old BPM.
 
 Pulse detection now removes a slow DC baseline and applies two approximately
-5 Hz low-pass stages before beat detection. Raw clipping still invalidates BPM;
+4 Hz low-pass stages before beat detection. Raw clipping still invalidates BPM;
 the filter does not repair clipped or missing optical signals. Tests cover
 40/60/90/120/180 BPM, added 50/60/100/120 Hz interference, and a recorded
 no-contact trace. Contact accuracy after filtering still requires a physical
 reference comparison; a plausible number alone is not validation.
+
+Weak pulse handling uses a minimum filtered swing of four 10-bit counts.
+The two 4 Hz low-pass stages preserve weak optical pulses while rejecting
+fast interference. Regression tests include a clean 60 BPM pulse narrowing
+to a 30 ms width with amplitude falling from 120 to 80 raw ADC counts.
+No-contact expiry remains 2.5 seconds; missing BPM is never held indefinitely.
+PULSE diagnostics also report filtered peak-to-peak `fpp` and `beat_age` in ms
+(4294967295 before a detected beat) to distinguish clipping and missed beats.

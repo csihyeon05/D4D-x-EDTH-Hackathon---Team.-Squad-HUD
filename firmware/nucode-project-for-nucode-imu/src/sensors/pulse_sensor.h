@@ -14,8 +14,12 @@ public:
   uint16_t raw() const { return raw_; }  // 12bit
   uint16_t bpm() const { return bpm_; }  // 0 = unavailable
   uint16_t ibiMs() const { return ibi_; }
+  int filtered() const { return filtered_; }
+  uint32_t beatAgeMs(uint32_t now) const { return first_ ? UINT32_MAX : now - lastBeat_; }
 
 private:
+  // Threshold is in the filtered 10-bit domain, not the raw ADC domain.
+  static constexpr int MIN_FILTERED_SWING = 4;
   void resetDetection(uint32_t now, int signal);
   uint32_t lastClippedMs_ = 0;
   bool clipping_ = false;
@@ -24,6 +28,7 @@ private:
   bool sampled_ = false;
 
   PulseFilter filter_;
+  int filtered_ = 512;
   uint16_t raw_ = 0;
   uint16_t bpm_ = 0;
   uint16_t ibi_ = 600;

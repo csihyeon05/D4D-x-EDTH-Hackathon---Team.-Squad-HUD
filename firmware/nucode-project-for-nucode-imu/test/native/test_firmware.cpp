@@ -142,6 +142,17 @@ int main() {
     jittered.sample();
   }
   assert(jittered.bpm() >= 59 && jittered.bpm() <= 61);
+  // Weak, clean optical pulses must not drop to unknown between beats.
+  PulseSensor weak(3);
+  for (nowMs = 0; nowMs < 30000; nowMs += 2) {
+    const int amplitude = nowMs < 10000 ? 120 : 80;
+    adc = 2048 + ((nowMs % 1000 >= 500 && nowMs % 1000 < 530) ? amplitude : 0);
+    weak.sample();
+    if (nowMs > 5000) assert(weak.bpm() >= 58 && weak.bpm() <= 62);
+  }
+  // A removed finger must still expire; no indefinite last-value hold.
+  for (unsigned i = 0; i < 1600; ++i) { nowMs += 2; adc = 2048; weak.sample(); }
+  assert(weak.bpm() == 0);
   // Mains-frequency interference alone must not look like fast heartbeats.
   for (int hz : {50, 60, 100, 120}) {
     PulseSensor interference(3), contaminated(3);

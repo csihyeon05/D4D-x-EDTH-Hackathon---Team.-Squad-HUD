@@ -84,3 +84,23 @@ the end of the 30-second capture.
 This verifies physical contact can produce a BPM that reaches the radio and
 backend. The rate varied substantially; it does not establish stable or accurate
 heart rate, and no simultaneous reference sensor was available.
+
+## Weak-pulse dropout regression
+
+The next reported symptom was alternating numeric BPM and unknown. In the
+previous contact log, seconds 7-8 lost BPM despite clip=0, so saturation alone
+does not explain all dropouts. A synthetic clean 60 BPM pulse, 30 ms wide and
+falling from 120 to 80 ADC counts in amplitude, reproduced loss of detection
+with the earlier filtered threshold.
+
+The filtered swing threshold is now four 10-bit counts, paired with two
+approximately 4 Hz low-pass stages. Lowering the threshold alone failed the
+interference test; the joint change passes weak-pulse continuity, recorded
+no-contact noise, 50/60/100/120 Hz interference, and 40-180 BPM regression tests.
+Removal still expires BPM; no extra last-value hold was introduced. PULSE logs
+now include filtered peak-to-peak range and time since the last detected beat.
+
+Both native suites and both target builds passed. The connected MPU6050 board
+was uploaded successfully. Post-tuning physical finger-contact continuity is
+not yet verified; the synthetic reproduction is not proof of the exact cause
+of every physical dropout.

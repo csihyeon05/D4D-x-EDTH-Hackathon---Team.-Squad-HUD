@@ -30,6 +30,7 @@ void acquire(void*) {
   uint32_t previous = micros(), gaps = 0;
   uint32_t pulseWindowMs = millis(), pulseSamples = 0, clipped = 0;
   uint16_t pulseMin = 4095, pulseMax = 0;
+  int filteredMin = INT16_MAX, filteredMax = INT16_MIN;
   for (;;) {
     const TickType_t step = cadence.next();
     vTaskDelayUntil(&scheduled, step);
@@ -46,13 +47,17 @@ void acquire(void*) {
       PulseTrace::sample(raw, ms);
       if (raw < pulseMin) pulseMin = raw;
       if (raw > pulseMax) pulseMax = raw;
+      if (pulse.filtered() < filteredMin) filteredMin = pulse.filtered();
+      if (pulse.filtered() > filteredMax) filteredMax = pulse.filtered();
       ++pulseSamples;
       if (raw <= ADC_SCALE / 100 || raw >= ADC_SCALE * 95 / 100) ++clipped;
       if (uint32_t(ms - pulseWindowMs) >= 1000) {
-        LOG("PULSE,min=%u,max=%u,n=%lu,clip=%lu,bpm=%u\n", pulseMin, pulseMax,
-            (unsigned long)pulseSamples, (unsigned long)clipped, pulse.bpm());
+        LOG("PULSE,min=%u,max=%u,n=%lu,clip=%lu,bpm=%u,fpp=%d,beat_age=%lu\n", pulseMin, pulseMax,
+            (unsigned long)pulseSamples, (unsigned long)clipped, pulse.bpm(),
+            filteredMax - filteredMin, (unsigned long)pulse.beatAgeMs(ms));
         pulseWindowMs = ms; pulseSamples = clipped = 0;
         pulseMin = 4095; pulseMax = 0;
+        filteredMin = INT16_MAX; filteredMax = INT16_MIN;
       }
     }
     if (CFG_TMP36 && temperatureTick.due(micros())) temperature.sample();

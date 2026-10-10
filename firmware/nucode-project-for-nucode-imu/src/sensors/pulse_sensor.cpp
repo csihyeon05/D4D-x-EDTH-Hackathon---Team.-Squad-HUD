@@ -6,6 +6,7 @@ void PulseSensor::begin() {
 }
 
 void PulseSensor::resetDetection(uint32_t now, int signal) {
+  filtered_ = signal;
   thresh_ = peak_ = trough_ = signal;
   amp_ = 0; first_ = true; second_ = false; pulse_ = false;
   bpm_ = 0; ibi_ = 600; lastBeat_ = now;
@@ -39,6 +40,7 @@ void PulseSensor::sample() {
   }
   clipping_ = false;
   const int sig = filter_.update(input, dt <= 20 ? dt : 0);
+  filtered_ = sig;
   const int32_t n = (int32_t)(sampleCounter_ - lastBeat_);
 
   if (sig < thresh_ && n > (ibi_ / 5) * 3 && sig < trough_) trough_ = sig;
@@ -46,7 +48,7 @@ void PulseSensor::sample() {
 
   if (n > 250) {
     if (sig > thresh_ && !pulse_ && n > (ibi_ / 5) * 3
-        && peak_ - trough_ >= 8) {
+        && peak_ - trough_ >= MIN_FILTERED_SWING) {
       pulse_ = true;
       ibi_ = (uint16_t)(sampleCounter_ - lastBeat_);
       lastBeat_ = sampleCounter_;
