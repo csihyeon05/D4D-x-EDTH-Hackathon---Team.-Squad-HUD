@@ -59,3 +59,30 @@ the buffer spans about four seconds. Missing log rows must be detected before
 replaying the trace; timestamps bound the window but do not encode sample jitter.
 The production build default remains trace-disabled. Diagnostic output finishes
 after one capture and does not repeatedly flood the serial link.
+
+## Physical capture after amplitude recovery
+
+The diagnostic build was uploaded successfully to the MPU6050 node. The captured
+2048-sample dropout window spans node time 15317-19411 ms (4094 ms); all indexed
+rows were recovered. Raw ADC values range from 385 to 3899. A Hann-windowed DFT
+using nominal 500 Hz sampling has its largest peak at 60.06 Hz, about 630 ADC
+counts in amplitude. Neighboring bins also contain substantial energy. This is
+consistent with strong mains-frequency interference, but does not identify its
+coupling path. The firmware's 95% near-rail guard was reached; this alone does
+not prove that the ADC physically saturated.
+
+The user subsequently confirmed that skin could contact rear exposed metal.
+The manufacturer's preparation guide explicitly requires insulation to avoid
+noise and shorts: https://pulsesensor.com/pages/pulsesensor-manual . Power-off
+rear insulation and front-only contact were requested. They have not yet been
+verified. No claim of resolved physical measurement stability is made.
+
+`validation/pulse-dropout-raw.csv` preserves the raw window. Its sample times
+are nominal offsets, not per-sample hardware timestamps. The longer
+`validation/pulse-amplitude-vitals.csv` contains the actual 1 Hz snapshots.
+BPM still became unavailable repeatedly. The longest uninterrupted nonzero run
+in that log is 17 snapshots at node time 79.101-95.103 s, ranging from 73 to
+83 BPM. This is a continuity observation, not an accuracy validation. The exact
+contact interval is not synchronized to these node timestamps. Firmware fixes
+passed native regression tests and both target builds; physical stabilization
+requires the pending insulation check and another observation.
