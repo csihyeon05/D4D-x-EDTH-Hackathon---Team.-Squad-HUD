@@ -97,10 +97,12 @@ class Director:
     def setup(self) -> None:
         self.p.evaluate(CAPTION_JS)
 
-    def cap(self, text: str, sub: str = "", hold: float = 0.0) -> None:
+    def cap(self, text: str, sub: str = "", hold: float = 0.0, top: bool = False) -> None:
+        """Caption box; top=True when the highlighted panel sits low on the screen."""
         self.setup()
-        self.p.evaluate("([t,s]) => { const c=document.getElementById('demo-cap'); c.innerHTML = t + (s ? '<small>'+s+'</small>' : ''); c.style.opacity = 1; }",
-                        [text, sub])
+        self.p.evaluate("([t,s,top]) => { const c=document.getElementById('demo-cap'); c.innerHTML = t + (s ? '<small>'+s+'</small>' : '');"
+                        " c.style.top = top ? '84px' : 'auto'; c.style.bottom = top ? 'auto' : '28px'; c.style.opacity = 1; }",
+                        [text, sub, top])
         if hold:
             self.p.wait_for_timeout(int(hold * 1000))
 
@@ -182,9 +184,9 @@ def cop_scenes(d: Director, base: str) -> None:
     d.wait_until("() => document.querySelector('.briefing-panel .briefing-text') !== null", 40)
     d.hl(".briefing-panel")
     d.cap("AI briefing from the local operator model — grounded on verified facts only",
-          "If the model names an unknown soldier or a condition not in the alerts, the rule template is shown instead", 9)
+          "If the model names an unknown soldier or a condition not in the alerts, the rule template is shown instead", 9, top=True)
     d.hl(".alerts-panel")
-    d.cap("Alert log and squad-level correlation: several soldiers close together breaking silence = POSSIBLE CONTACT", "", 7)
+    d.cap("Alert log and squad-level correlation: several soldiers close together breaking silence = POSSIBLE CONTACT", "", 7, top=True)
     d.hl(".action-banner")
     btn = p.locator(".action-banner button.btn-danger").first
     if btn.count():
@@ -224,16 +226,16 @@ def example_scenes(d: Director, base: str, scenario: str) -> None:
     d.cap("Incident: nodes break radio silence — measured heart-rate jump with no movement", "", 7)
     d.wait_until("() => document.querySelectorAll('.ex-tl li[data-kind=\"alert\"]').length >= 3", 20)
     d.hl(".ex-timeline")
-    d.cap("Timeline: node alerts and the squad-level POSSIBLE CONTACT event", "", 5)
+    d.cap("Timeline: node alerts and the squad-level POSSIBLE CONTACT event", "", 5, top=True)
 
     d.step("3 · EXAMPLE · 3 Operator")
     d.hl(".ex-operator")
-    d.cap("Ask the operator: the local LLM writes the brief and picks actions from a fixed catalog", "", 3)
+    d.cap("Ask the operator: the local LLM writes the brief and picks actions from a fixed catalog", "", 3, top=True)
     p.click(".ex-operator button.btn-primary")
     d.wait_until("() => document.querySelector('.ex-recs') !== null", 90)
     p.wait_for_timeout(800)
     d.cap("Brief + recommended actions — each tagged LLM pick or rule gap-fill",
-          "A validator drops unknown actions, soldiers, sectors and targets that do not meet the action's precondition", 11)
+          "A validator drops unknown actions, soldiers, sectors and targets that do not meet the action's precondition", 14, top=True)
 
     d.step("3 · EXAMPLE · 4 Solution")
     p.click(".ex-exec")
@@ -245,7 +247,7 @@ def example_scenes(d: Director, base: str, scenario: str) -> None:
     d.wait_until("() => document.querySelector('.ex-outcome') !== null", 90)
     d.step("3 · EXAMPLE · 5 Outcome")
     d.hl(".ex-outcome")
-    d.cap("Outcome, before vs. after: critical soldiers, soldiers in the contact sector, casualty distance to CP", "", 10)
+    d.cap("Outcome, before vs. after: critical soldiers, soldiers in the contact sector, casualty distance to CP", "", 10, top=True)
     d.hl(None)
 
 
