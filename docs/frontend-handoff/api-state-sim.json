@@ -1,0 +1,129 @@
+{
+  "mission_time_s": 2.0,
+  "soldiers": [
+    {
+      "soldier_id": 2,
+      "callsign": "S2",
+      "severity": "OK",
+      "stale": false,
+      "acked": false,
+      "active_code": 0,
+      "active_label": "Check-in",
+      "interpretation": "routine check-in",
+      "hr_bpm": 75,
+      "skin_temp_c": 33.68,
+      "activity": 64,
+      "gas": 6,
+      "x_m": 139.9,
+      "y_m": 42.3,
+      "sector": "B1",
+      "hops": 0,
+      "rssi": -75,
+      "psi_est": 0.0,
+      "psi_band": "low",
+      "baseline": {
+        "hr_bpm": 75.0,
+        "skin_temp_c": 33.68
+      },
+      "last_seen_s": 2.0,
+      "seconds_since_seen": 0.0,
+      "packets": 1,
+      "trail": [
+        [
+          139.9,
+          42.3
+        ]
+      ],
+      "gps": {
+        "soldier_id": 2,
+        "device_id": "phone-demo-2",
+        "device_name": null,
+        "fix_unix_ms": 1791645269786,
+        "lat": 37.5665,
+        "lon": 126.978,
+        "accuracy_m": 4.8,
+        "heading_gps_deg": null,
+        "heading_compass_deg": 90.0,
+        "compass_accuracy_deg": null,
+        "speed_mps": 0.0,
+        "alt_m": null,
+        "alt_accuracy_m": null,
+        "recv_unix_ms": 1791645269813,
+        "heading_deg": 90.0,
+        "heading_source": "compass",
+        "client_ip": "testclient",
+        "time_local": "2026-10-11 00:14:29.813",
+        "id_conflict": false,
+        "age_s": 1.0,
+        "track": [
+          [
+            37.5665,
+            126.978
+          ]
+        ]
+      }
+    }
+  ],
+  "alerts": [],
+  "squad_events": [],
+  "counts": {
+    "OK": 1
+  },
+  "stats": {
+    "packets": 1,
+    "bytes": 18,
+    "rejected": 0,
+    "alerts": 0,
+    "checkins": 1
+  },
+  "grid": {
+    "size_m": 300.0,
+    "n": 3
+  },
+  "gps": {
+    "devices": [
+      {
+        "soldier_id": 2,
+        "device_id": "phone-demo-2",
+        "device_name": null,
+        "fix_unix_ms": 1791645269786,
+        "lat": 37.5665,
+        "lon": 126.978,
+        "accuracy_m": 4.8,
+        "heading_gps_deg": null,
+        "heading_compass_deg": 90.0,
+        "compass_accuracy_deg": null,
+        "speed_mps": 0.0,
+        "alt_m": null,
+        "alt_accuracy_m": null,
+        "recv_unix_ms": 1791645269813,
+        "heading_deg": 90.0,
+        "heading_source": "compass",
+        "client_ip": "testclient",
+        "time_local": "2026-10-11 00:14:29.813",
+        "id_conflict": false,
+        "age_s": 1.0,
+        "track": [
+          [
+            37.5665,
+            126.978
+          ]
+        ]
+      }
+    ],
+    "csv": "gps_20261011_001429_810159.csv"
+  },
+  "source": "sim",
+  "emission": {
+    "sensor_samples": 4,
+    "packets_on_air": 1,
+    "radio_silence_pct": 75.0
+  },
+  "briefings": [],
+  "llm": {
+    "enabled": false,
+    "reachable": null,
+    "model": "llama3.1:8b",
+    "base_url": "http://127.0.0.1:11434/v1"
+  }
+}

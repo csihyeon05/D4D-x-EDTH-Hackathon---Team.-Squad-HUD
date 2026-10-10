@@ -1,0 +1,386 @@
+"""FastAPI entry point: data source -> engine -> WebSocket COP + briefings."""
+from __future__ import annotations
+
+import asyncio
+import logging
+import socket
+import time
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import FileResponse, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from . import config
+from .briefing import Briefer
+from .engine import Engine
+from .example import ExampleSim
+from .gps import GpsFix, GpsStore
+from .protocol import PACKET_SIZE, PacketError, decode, parse_gateway_line
+from .simulator import SCENARIOS, SquadSimulator
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+log = logging.getLogger("c2")
+
+
+class Hub:
+    """Shared runtime: one engine, one source, many COP clients."""
+
+    def __init__(self) -> None:
+        self.engine = Engine()
+        self.gps = GpsStore()
+        self.briefer = Briefer()
+        self.example = ExampleSim(origin_provider=self._phone_origin)
+        self.sim = SquadSimulator() if config.SOURCE == "sim" else None
+        self.clients: set[WebSocket] = set()
+        self.briefings: list[dict] = []
+        self.t0 = time.monotonic()
+        self._brief_pending = False
+        self.serial_queue: asyncio.Queue = asyncio.Queue()
+
+    def _phone_origin(self) -> tuple[float, float] | None:
+        """Centre the example run on the newest live phone fix, so the satellite map shows here."""
+        devices = [d for d in self.gps.snapshot()["devices"] if d["age_s"] <= 600]
+        if not devices:
+            return None
+        d = min(devices, key=lambda d: d["age_s"])
+        return d["lat"], d["lon"]
+
+    def now(self) -> float:
+        return self.sim.t if self.sim else time.monotonic() - self.t0
+
+    async def broadcast(self, msg: dict) -> None:
+        dead = []
+        for ws in self.clients:
+            try:
+                await ws.send_json(msg)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.clients.discard(ws)
+
+    def state(self) -> dict:
+        snap = self.engine.snapshot(self.now())
+        snap["gps"] = self.gps.snapshot()
+        for soldier in snap["soldiers"]:
+            candidates = [fix for fix in snap["gps"]["devices"]
+                          if fix.get("soldier_id") == soldier["soldier_id"]
+                          and fix["age_s"] <= 10 and not fix["id_conflict"]]
+            # Ambiguous phone bindings never silently move a soldier's marker.
+            soldier["gps"] = candidates[0] if len(candidates) == 1 else None
+        snap["source"] = config.SOURCE
+        snap["emission"] = self.sim.emission_stats() if self.sim else None
+        snap["briefings"] = self.briefings[:10]
+        snap["llm"] = {"enabled": config.LLM_ENABLED, "reachable": self.briefer.llm_ok,
+                       "model": config.LLM_MODEL, "base_url": config.LLM_BASE_URL, "api": config.LLM_API}
+        return snap
+
+    def handle_events(self, events: list[dict]) -> None:
+        important = any(
+            (e["type"] == "squad") or (e["type"] == "alert" and e["severity"] in ("CRITICAL", "WARN"))
+            for e in events)
+        if important:
+            self.request_briefing(delay=2.0, trigger="event")
+
+    def request_briefing(self, delay: float = 0.0, trigger: str = "manual") -> None:
+        if self._brief_pending:
+            return
+        self._brief_pending = True
+        asyncio.get_running_loop().create_task(self._brief(delay, trigger))
+
+    async def _brief(self, delay: float, trigger: str) -> None:
+        try:
+            await asyncio.sleep(delay)  # let related packets arrive and get correlated first
+            b = await self.briefer.brief(self.engine.facts(self.now()))
+            b["trigger"], b["mission_time_s"] = trigger, round(self.now(), 1)
+            self.briefings.insert(0, b)
+            del self.briefings[20:]
+            await self.broadcast({"type": "briefing", "briefing": b})
+        finally:
+            self._brief_pending = False
+
+    # ------------------------------------------------------------ source loops
+    async def sim_loop(self) -> None:
+        while True:
+            for raw, rssi in self.sim.step(1.0):
+                try:
+                    self.handle_events(self.engine.ingest(decode(raw, rssi), self.now(), len(raw)))
+                except PacketError:
+                    self.engine.reject()
+            await self.broadcast({"type": "state", "state": self.state()})
+            await asyncio.sleep(1.0 / max(0.1, config.SIM_SPEED))
+
+    async def serial_loop(self) -> None:
+        from .serial_source import start_serial_reader
+        start_serial_reader(asyncio.get_running_loop(), self.serial_queue)
+        while True:
+            line = await self.serial_queue.get()
+            try:
+                p = parse_gateway_line(line)
+            except (PacketError, ValueError):
+                self.engine.reject()
+                continue
+            if p is not None:
+                self.handle_events(self.engine.ingest(p, self.now(), PACKET_SIZE))
+
+    async def tick_loop(self) -> None:
+        """In serial mode, push state every second so staleness updates on the COP."""
+        while True:
+            await asyncio.sleep(1.0)
+            await self.broadcast({"type": "state", "state": self.state()})
+
+
+hub: Hub
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global hub
+    hub = Hub()
+    tasks = [asyncio.create_task(hub.sim_loop() if hub.sim else hub.serial_loop())]
+    if not hub.sim:
+        tasks.append(asyncio.create_task(hub.tick_loop()))
+    log.info("C2 backend up (source=%s, llm=%s %s)", config.SOURCE, config.LLM_BASE_URL, config.LLM_MODEL)
+    yield
+    hub.example.reset()
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    hub.gps.close()
+
+
+app = FastAPI(title="Squad Tactical C2", version="0.1.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:4200", "http://127.0.0.1:4200"],
+                   allow_methods=["*"], allow_headers=["*"])
+
+
+class ScenarioReq(BaseModel):
+    name: str
+    soldier_id: int | None = None
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"ok": True, "source": config.SOURCE, "llm_reachable": hub.briefer.llm_ok,
+            "llm_error": hub.briefer.last_error}
+
+
+@app.get("/api/state")
+def get_state() -> dict:
+    return hub.state()
+
+
+@app.get("/api/scenarios")
+def list_scenarios() -> dict:
+    return {"available": SCENARIOS if hub.sim else {}, "source": config.SOURCE}
+
+
+@app.post("/api/scenario")
+def trigger_scenario(req: ScenarioReq) -> dict:
+    if not hub.sim:
+        raise HTTPException(400, "scenarios are only available with C2_SOURCE=sim")
+    res = hub.sim.trigger(req.name, req.soldier_id)
+    if req.name == "reset" and res.get("ok"):
+        hub.engine.reset()
+        hub.briefings.clear()
+    return res
+
+
+@app.post("/api/soldiers/{sid}/ack")
+def ack(sid: int) -> dict:
+    if not hub.engine.acknowledge(sid):
+        raise HTTPException(404, "unknown soldier")
+    return {"ok": True}
+
+
+@app.post("/api/briefing")
+async def briefing_now() -> dict:
+    b = await hub.briefer.brief(hub.engine.facts(hub.now()))
+    b["trigger"], b["mission_time_s"] = "manual", round(hub.now(), 1)
+    hub.briefings.insert(0, b)
+    await hub.broadcast({"type": "briefing", "briefing": b})
+    return b
+
+
+# ---------------------------------------------------------------- example run
+class ExampleStartReq(BaseModel):
+    scenario: str
+    speed: float = 2.0
+
+
+class ExampleSolutionReq(BaseModel):
+    actions: list[dict]
+
+
+@app.get("/api/example/personas")
+def example_personas() -> dict:
+    return hub.example.personas_info()
+
+
+@app.post("/api/example/start")
+async def example_start(req: ExampleStartReq) -> dict:
+    res = hub.example.start(req.scenario, req.speed)
+    if not res.get("ok"):
+        raise HTTPException(400, res.get("error", "cannot start"))
+    return res
+
+
+@app.get("/api/example/state")
+def example_state() -> dict:
+    st = hub.example.state()
+    st["llm"] = {"enabled": config.LLM_ENABLED, "reachable": hub.briefer.llm_ok,
+                 "model": config.LLM_MODEL, "api": config.LLM_API}
+    return st
+
+
+@app.post("/api/example/brief")
+async def example_brief() -> dict:
+    ex = hub.example
+    if ex.phase not in ("incident", "brief"):
+        raise HTTPException(400, f"nothing to brief in phase {ex.phase}")
+    t_req = ex.t
+    b = await hub.briefer.recommend(ex.facts())
+    b["mission_time_s"] = t_req
+    ex.brief, ex.brief_t = b, t_req
+    if ex.phase == "incident":
+        ex.phase = "brief"
+    ex.log("brief", f"Operator ({'LLM ' + b['model'] if b['model'] else 'rules'}, {b['latency_ms']} ms): "
+                    + ", ".join(r["action"] for r in b["recommendations"]))
+    return b
+
+
+@app.post("/api/example/solution")
+async def example_solution(req: ExampleSolutionReq) -> dict:
+    res = hub.example.apply(req.actions)
+    if not res.get("ok"):
+        raise HTTPException(400, res.get("error", "cannot execute"))
+    return res
+
+
+@app.post("/api/example/reset")
+async def example_reset() -> dict:
+    hub.example.reset()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- phone GPS
+_static = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/gps", include_in_schema=False)
+def gps_page() -> FileResponse:
+    """Phone measurement page. Open it on the phone over HTTPS (see README)."""
+    return FileResponse(_static / "gps.html")
+
+
+@app.post("/api/gps")
+async def post_gps(fix: GpsFix, request: Request) -> dict:
+    row = hub.gps.ingest(fix, request.client.host if request.client else None)
+    await hub.broadcast({"type": "gps", "fix": row})
+    return {"ok": True, "heading_deg": row["heading_deg"], "heading_source": row["heading_source"]}
+
+
+@app.get("/api/gps")
+def get_gps() -> dict:
+    return hub.gps.snapshot()
+
+
+# ---------------------------------------------------------------- phone link / QR
+_CERT_IP_FILE = Path(__file__).resolve().parents[1] / "certs" / "ip.txt"
+
+
+def _lan_ip() -> str | None:
+    """Address a phone on the same Wi-Fi/hotspot should use: the IP the TLS cert was made
+    for (run_gps.ps1 writes certs/ip.txt), else the interface carrying the default route."""
+    try:
+        ip = _CERT_IP_FILE.read_text(encoding="ascii").strip()
+        if ip:
+            return ip
+    except OSError:
+        pass
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))  # no packet is sent; only selects the route
+            return s.getsockname()[0]
+    except OSError:
+        return None
+
+
+def _phone_link(request: Request, soldier: int | None) -> dict:
+    https = request.url.scheme == "https"
+    port = request.url.port or (443 if https else 80)
+    ip = _lan_ip()
+    query = f"?soldier={soldier}" if soldier else ""
+    # Phones need HTTPS for the Geolocation API; over plain http this server cannot serve them.
+    url = f"https://{ip}:{port if https else 8443}/gps{query}" if ip else None
+    return {"url": url, "ip": ip, "https": https, "soldier": soldier}
+
+
+@app.get("/api/phone-link")
+def phone_link(request: Request, soldier: int | None = Query(default=None, ge=1, le=255)) -> dict:
+    return _phone_link(request, soldier)
+
+
+@app.get("/api/phone-qr.svg", include_in_schema=False)
+def phone_qr(request: Request, soldier: int | None = Query(default=None, ge=1, le=255)) -> Response:
+    link = _phone_link(request, soldier)
+    if not link["url"]:
+        raise HTTPException(503, "no network address for the phone link")
+    import qrcode
+    import qrcode.image.svg
+    img = qrcode.make(link["url"], image_factory=qrcode.image.svg.SvgPathImage, border=2)
+    return Response(img.to_string(encoding="unicode"), media_type="image/svg+xml",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/gps/pc", include_in_schema=False)
+def gps_pc_page() -> FileResponse:
+    """Laptop monitor: live readings with English labels + CSV download."""
+    return FileResponse(_static / "gps_pc.html")
+
+
+@app.get("/api/gps/logs")
+def gps_logs() -> dict:
+    return {"files": hub.gps.log_files()}
+
+
+@app.get("/api/gps/csv")
+def gps_csv(name: str | None = None) -> FileResponse:
+    """Download a CSV log: the current session by default, or ?name=gps_YYYYMMDD_HHMMSS.csv."""
+    path = hub.gps.csv_path if name is None else hub.gps.log_path(name)
+    if path is None:
+        raise HTTPException(404, "no such log")
+    return FileResponse(path, media_type="text/csv", filename=path.name,
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.websocket("/ws")
+async def ws_endpoint(ws: WebSocket) -> None:
+    await ws.accept()
+    hub.clients.add(ws)
+    await ws.send_json({"type": "state", "state": hub.state()})
+    try:
+        while True:
+            await ws.receive_text()  # keepalive; client messages are not used
+    except WebSocketDisconnect:
+        hub.clients.discard(ws)
+
+
+# Serve the built Angular COP from the same process (fully offline, one port)
+_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist" / "frontend" / "browser"
+
+
+@app.get("/example", include_in_schema=False)
+def example_page() -> FileResponse:
+    """Same Angular bundle; main.ts boots the example page for this path."""
+    index = _dist / "index.html"
+    if not index.is_file():
+        raise HTTPException(404, "COP frontend not built")
+    return FileResponse(index)
+
+
+if _dist.is_dir():
+    app.mount("/", StaticFiles(directory=_dist, html=True), name="cop")

@@ -1,0 +1,68 @@
+{
+  "mission_time_s": 0.6,
+  "soldiers": [
+    {
+      "soldier_id": 1,
+      "callsign": "S1",
+      "severity": "OK",
+      "stale": false,
+      "acked": false,
+      "active_code": 0,
+      "active_label": "Check-in",
+      "interpretation": "routine check-in",
+      "hr_bpm": 65,
+      "skin_temp_c": 23.27,
+      "activity": 10,
+      "gas": 0,
+      "x_m": 0.0,
+      "y_m": 1.0,
+      "sector": "A1",
+      "hops": 0,
+      "rssi": -60,
+      "psi_est": 0.0,
+      "psi_band": "low",
+      "baseline": {
+        "hr_bpm": 65.0,
+        "skin_temp_c": 23.27
+      },
+      "last_seen_s": 0.5205641909997212,
+      "seconds_since_seen": 0.1,
+      "packets": 1,
+      "trail": [
+        [
+          0.0,
+          1.0
+        ]
+      ]
+    }
+  ],
+  "alerts": [],
+  "squad_events": [],
+  "counts": {
+    "OK": 1
+  },
+  "stats": {
+    "packets": 1,
+    "bytes": 18,
+    "rejected": 0,
+    "alerts": 0,
+    "checkins": 1
+  },
+  "grid": {
+    "size_m": 300.0,
+    "n": 3
+  },
+  "source": "serial",
+  "emission": null,
+  "briefings": [],
+  "gps": {
+    "devices": [],
+    "csv": "gps_20261011_015511.csv"
+  },
+  "llm": {
+    "enabled": false,
+    "reachable": null,
+    "model": "llama3.1:8b",
+    "base_url": "http://127.0.0.1:11434/v1"
+  }
+}

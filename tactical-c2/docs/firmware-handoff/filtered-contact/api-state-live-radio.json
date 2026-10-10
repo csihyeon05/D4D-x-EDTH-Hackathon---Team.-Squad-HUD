@@ -1,0 +1,152 @@
+{
+  "mission_time_s": 0.6,
+  "soldiers": [
+    {
+      "soldier_id": 1,
+      "callsign": "S1",
+      "severity": "OK",
+      "stale": false,
+      "acked": false,
+      "active_code": 0,
+      "active_label": "Check-in",
+      "interpretation": "routine check-in",
+      "hr_bpm": 71,
+      "skin_temp_c": 23.13,
+      "activity": 7,
+      "gas": 0,
+      "x_m": 0.0,
+      "y_m": 0.0,
+      "sector": "A1",
+      "hops": 0,
+      "rssi": -56,
+      "psi_est": 0.7,
+      "psi_band": "low",
+      "baseline": {
+        "hr_bpm": 55.0,
+        "skin_temp_c": 22.97
+      },
+      "last_seen_s": 0.561742685000354,
+      "seconds_since_seen": 0.0,
+      "packets": 24,
+      "trail": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0
+        ]
+      ]
+    }
+  ],
+  "alerts": [],
+  "squad_events": [],
+  "counts": {
+    "OK": 1
+  },
+  "stats": {
+    "packets": 24,
+    "bytes": 432,
+    "rejected": 0,
+    "alerts": 0,
+    "checkins": 24
+  },
+  "grid": {
+    "size_m": 300.0,
+    "n": 3
+  },
+  "source": "serial",
+  "emission": null,
+  "briefings": [],
+  "gps": {
+    "devices": [],
+    "csv": "gps_20261011_031536.csv"
+  },
+  "llm": {
+    "enabled": false,
+    "reachable": null,
+    "model": "llama3.1:8b",
+    "base_url": "http://127.0.0.1:11434/v1"
+  }
+}

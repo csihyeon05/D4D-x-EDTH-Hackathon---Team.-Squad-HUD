@@ -1,0 +1,33 @@
+{
+  "devices": [
+    {
+      "soldier_id": 2,
+      "device_id": "phone-demo-2",
+      "device_name": null,
+      "fix_unix_ms": 1791645269786,
+      "lat": 37.5665,
+      "lon": 126.978,
+      "accuracy_m": 4.8,
+      "heading_gps_deg": null,
+      "heading_compass_deg": 90.0,
+      "compass_accuracy_deg": null,
+      "speed_mps": 0.0,
+      "alt_m": null,
+      "alt_accuracy_m": null,
+      "recv_unix_ms": 1791645269813,
+      "heading_deg": 90.0,
+      "heading_source": "compass",
+      "client_ip": "testclient",
+      "time_local": "2026-10-11 00:14:29.813",
+      "id_conflict": false,
+      "age_s": 1.0,
+      "track": [
+        [
+          37.5665,
+          126.978
+        ]
+      ]
+    }
+  ],
+  "csv": "gps_20261011_001429_810159.csv"
+}

@@ -1,0 +1,10 @@
+{
+  "device_id": "phone-demo-2",
+  "soldier_id": 2,
+  "fix_unix_ms": 1791645269786,
+  "lat": 37.5665,
+  "lon": 126.978,
+  "accuracy_m": 4.8,
+  "heading_compass_deg": 90,
+  "speed_mps": 0
+}

@@ -1,0 +1,293 @@
+@let st = c2.state();
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"></span>
+    <div>
+      <div class="brand-title">SQUAD C2 · COP</div>
+      <div class="brand-sub">Offline edge terminal</div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><span class="kpi-label">Mission</span><span class="kpi-value mono">{{ clock() }}</span></div>
+    <div class="kpi"><span class="kpi-label">Flagged</span>
+      <span class="kpi-value mono" [class.hot]="c2.flagged() > 0">{{ c2.flagged() }}/{{ c2.soldiers().length }}</span></div>
+    <div class="kpi"><span class="kpi-label">Packets</span>
+      <span class="kpi-value mono">{{ st?.stats?.packets ?? 0 }} <small>{{ st?.stats?.bytes ?? 0 }} B</small></span></div>
+    @if (st?.emission; as em) {
+      <div class="kpi" title="Share of sensor samples that never went on air">
+        <span class="kpi-label">Radio silence</span>
+        <span class="kpi-value mono">{{ em.radio_silence_pct | number: '1.1-1' }}%</span>
+      </div>
+    }
+  </div>
+
+  <div class="status">
+    @if (c2.mockMode) { <span class="chip chip-warn">MOCK DATA</span> }
+    @if (!c2.mockMode) {
+      <button type="button" class="chip chip-button" [class.chip-on]="phoneOpen()" (click)="togglePhone()"
+              [attr.aria-expanded]="phoneOpen()" aria-controls="phone-panel">PHONE QR</button>
+    }
+    <a class="chip chip-button" href="/example" target="_blank" rel="noopener"
+       title="Persona dataset → incident → operator brief → solution, in a new tab">EXAMPLE</a>
+    <span class="chip" [class.chip-ok]="c2.connected()" [class.chip-bad]="!c2.connected()">
+      {{ c2.connected() ? 'LINK' : 'NO LINK' }}</span>
+    <span class="chip">{{ st?.source === 'serial' ? 'GATEWAY' : 'SIMULATOR' }}</span>
+    <span class="chip" [class.chip-ok]="st?.llm?.reachable === true" [class.chip-warn]="st?.llm?.reachable === false">
+      sLLM {{ st?.llm?.reachable === true ? 'ONLINE' : st?.llm?.reachable === false ? 'FALLBACK' : 'IDLE' }}</span>
+  </div>
+</header>
+
+@if (phoneOpen()) {
+  <section id="phone-panel" class="phone-panel" aria-label="Connect a phone for GPS">
+    <div class="phone-qr">
+      @if (phoneLink()?.url) {
+        <img [src]="phoneQrSrc()" width="220" height="220" alt="QR code for the phone GPS page" />
+      } @else {
+        <div class="phone-qr-empty">No network address</div>
+      }
+    </div>
+    <div class="phone-text">
+      <div class="phone-title">Connect the phone on a soldier's outer</div>
+      <label class="phone-field">Soldier ID
+        <input type="number" min="1" max="255" [value]="phoneSoldier()" (change)="setPhoneSoldier($any($event.target).value)" />
+      </label>
+      @if (c2.soldiers().length) {
+        <div class="phone-quick">
+          @for (s of c2.soldiers(); track s.soldier_id) {
+            <button type="button" class="btn btn-small" [class.active]="s.soldier_id === phoneSoldier()"
+                    (click)="setPhoneSoldier('' + s.soldier_id)">{{ s.callsign }}</button>
+          }
+        </div>
+      }
+      @if (phoneLink(); as l) {
+        <div class="mono phone-url">{{ l.url ?? '–' }}</div>
+        @if (!l.https) {
+          <p class="phone-warn">This page is served over plain http. Phones need HTTPS for GPS: start the server with RUN_SUIT.bat and open https://localhost:8443/.</p>
+        }
+      }
+      <ol class="phone-steps">
+        <li>Phone on the same Wi-Fi / hotspot as this laptop.</li>
+        <li>Scan the code. On the certificate warning choose <b>Advanced → Proceed</b>.</li>
+        <li>Check the Soldier ID on the phone page, then press <b>Start</b>.</li>
+      </ol>
+    </div>
+    <button type="button" class="btn btn-small phone-close" (click)="togglePhone()">Close</button>
+  </section>
+}
+
+@if (actions().length) {
+  <section class="action-banner" role="alert" aria-live="assertive">
+    <div class="action-head">
+      <span class="action-title">Action required</span>
+      <span class="mono small">{{ actions().length }} critical</span>
+    </div>
+    @if (commanderBriefing(); as b) {
+      <p class="action-briefing">
+        <span class="tag" [class.tag-llm]="b.source === 'llm'">{{ b.source === 'llm' ? 'Commander AI · ' + b.model : 'Rule template' }}</span>
+        {{ b.text }}
+      </p>
+    }
+    <ul class="action-list">
+      @for (a of actions(); track a.soldier.soldier_id) {
+        <li [class.acked]="a.soldier.acked">
+          <div class="action-text">
+            <b>{{ a.soldier.callsign }}: {{ a.problem }}.</b>
+            <span class="action-do">{{ a.action }}</span>
+            <span class="action-evidence mono">{{ a.evidence }}</span>
+          </div>
+          <div class="action-buttons">
+            <button class="btn btn-small" (click)="selected.set(a.soldier.soldier_id)">Show on map</button>
+            @if (!a.soldier.acked) {
+              <button class="btn btn-small btn-danger" (click)="c2.ack(a.soldier.soldier_id)">Acknowledge</button>
+            } @else {
+              <span class="small">Acknowledged</span>
+            }
+          </div>
+        </li>
+      }
+    </ul>
+  </section>
+}
+
+<main class="layout">
+  <section class="panel map-panel">
+    <div class="panel-head">
+      <h2>Squad positions</h2>
+      <div class="legend">
+        <span><i class="sw" data-sev="OK"></i>OK</span><span><i class="sw" data-sev="WATCH"></i>Watch</span>
+        <span><i class="sw" data-sev="WARN"></i>Warn</span><span><i class="sw" data-sev="CRITICAL"></i>Critical</span>
+        <span><i class="sw" data-sev="UNKNOWN"></i>Unknown</span>
+      </div>
+    </div>
+    <app-gps-map class="map" [soldiers]="c2.soldiers()" [selected]="selected()" (pick)="select($event)" />
+  </section>
+
+  <section class="panel vitals-panel">
+    <div class="panel-head">
+      <h2>Vitals</h2>
+      <span class="muted mono small">{{ c2.soldiers().length }} soldiers</span>
+    </div>
+
+    <div class="vitals-table" role="table" aria-label="Squad vitals">
+      <div class="vt-row vt-head mono" role="row">
+        <span role="columnheader">Soldier</span>
+        <span role="columnheader">HR</span><span role="columnheader">Temp</span>
+        <span role="columnheader">PSI</span><span role="columnheader">Act</span><span role="columnheader">Seen</span>
+      </div>
+      @for (s of roster(); track s.soldier_id) {
+        <button type="button" class="vt-row" role="row" [attr.data-sev]="s.severity"
+                [class.selected]="s.soldier_id === selected()" [class.stale]="s.stale"
+                (click)="select(s.soldier_id)">
+          <span class="vt-who">
+            <span class="vt-callsign mono"><i class="sw" [attr.data-sev]="s.severity"></i>{{ s.callsign }}</span>
+            <span class="vt-status">{{ status(s) }}</span>
+          </span>
+          <span class="mono" [class.muted]="s.hr_status !== 'live'"
+                [attr.title]="s.hr_status === 'reacquiring' ? 'Last value ' + s.hr_age_s + ' s ago; reacquiring' : s.hr_status === 'unavailable' ? 'Sensor signal unavailable' : 'Heart rate'">{{ s.hr_display_bpm ?? '–' }}@if (s.hr_status === 'reacquiring') {<small>*</small>}</span>
+          <span class="mono">{{ s.skin_temp_c !== null ? (s.skin_temp_c | number: '1.1-1') + '°' : '–' }}</span>
+          <span class="mono">{{ s.psi_est ?? '–' }}</span>
+          <span class="mono">{{ s.activity ?? '–' }}</span>
+          <span class="mono muted">{{ s.seconds_since_seen !== null ? mmss(s.seconds_since_seen) : '–' }}</span>
+        </button>
+      } @empty {
+        <p class="muted">No soldiers have checked in yet.</p>
+      }
+    </div>
+
+    @if (focus(); as f) {
+      <article class="focus" [attr.data-sev]="f.severity">
+        <div class="focus-head">
+          <span class="callsign">{{ f.callsign }}</span>
+          <span class="sev" [attr.data-sev]="f.severity">{{ f.severity }}</span>
+          @if (f.severity === 'CRITICAL' || f.severity === 'WARN') {
+            @if (!f.acked) {
+              <button class="btn btn-small" (click)="c2.ack(f.soldier_id)">Acknowledge</button>
+            } @else {
+              <span class="muted small">Acknowledged</span>
+            }
+          }
+        </div>
+        <p class="focus-status">
+          <b>{{ status(f) }}</b>
+          @if (f.active_code && !f.stale) { <span class="muted"> · {{ f.interpretation }}</span> }
+        </p>
+
+        <div class="tiles">
+          <div class="tile">
+            <span class="tile-label">Heart rate</span>
+            <span class="tile-value mono" [class.muted]="f.hr_status !== 'live'">{{ f.hr_display_bpm ?? '–' }}<small> bpm</small></span>
+            <span class="tile-sub mono">
+              @if (f.hr_status === 'reacquiring') { Reacquiring · last value {{ f.hr_age_s }} s ago }
+              @else if (f.hr_bpm === null) { Sensor signal unavailable }
+              @else if (delta(f.hr_bpm, f.baseline.hr_bpm) !== null) {
+                {{ delta(f.hr_bpm, f.baseline.hr_bpm)! >= 0 ? '+' : '' }}{{ delta(f.hr_bpm, f.baseline.hr_bpm) | number: '1.0-0' }}
+                vs baseline {{ f.baseline.hr_bpm | number: '1.0-0' }}
+              }
+              @else { Baseline not set }
+            </span>
+          </div>
+          <div class="tile">
+            <span class="tile-label">Skin temp</span>
+            <span class="tile-value mono">{{ f.skin_temp_c !== null ? (f.skin_temp_c | number: '1.1-1') : '–' }}<small> °C</small></span>
+            <span class="tile-sub mono">
+              @if (f.skin_temp_c === null) { No temperature reading }
+              @else if (delta(f.skin_temp_c, f.baseline.skin_temp_c) !== null) {
+                {{ delta(f.skin_temp_c, f.baseline.skin_temp_c)! >= 0 ? '+' : '' }}{{ delta(f.skin_temp_c, f.baseline.skin_temp_c) | number: '1.1-1' }}
+                vs baseline {{ f.baseline.skin_temp_c | number: '1.1-1' }}
+              }
+              @else { Baseline not set }
+            </span>
+          </div>
+          <div class="tile">
+            <span class="tile-label">Strain (PSI est.)</span>
+            <span class="tile-value mono">{{ f.psi_est ?? '–' }}<small> /10</small></span>
+            <span class="tile-sub mono">{{ f.psi_band ?? 'needs HR and temp' }}</span>
+          </div>
+          <div class="tile">
+            <span class="tile-label">Activity</span>
+            <span class="tile-value mono">{{ f.activity ?? '–' }}<small> /255</small></span>
+            <span class="tile-sub mono">{{ moving(f) }}</span>
+            @if (f.activity !== null) {
+              <span class="bar"><i [style.width.%]="(f.activity / 255) * 100"></i></span>
+            }
+          </div>
+        </div>
+
+        <dl class="facts mono">
+          @if (f.gps; as g) {
+            <dt>GPS</dt><dd>{{ g.lat | number: '1.5-5' }}, {{ g.lon | number: '1.5-5' }} ±{{ g.accuracy_m | number: '1.0-0' }} m</dd>
+            <dt>Heading / speed</dt>
+            <dd>{{ g.heading_deg !== null ? (g.heading_deg | number: '1.0-0') + '° (' + g.heading_source + ')' : '–' }}
+              / {{ g.speed_mps !== null ? (g.speed_mps | number: '1.1-1') + ' m/s' : '–' }}</dd>
+            <dt>Fix age</dt><dd [class.warn-text]="g.age_s > 10">{{ g.age_s | number: '1.0-0' }} s · {{ g.device_name ?? g.device_id }}</dd>
+          } @else {
+            <dt>GPS</dt><dd class="muted">No phone GPS bound to this soldier</dd>
+          }
+          <dt>Dead reckoning</dt>
+          <dd>{{ f.x_m !== null && f.y_m !== null ? (f.x_m | number: '1.1-1') + ' E, ' + (f.y_m | number: '1.1-1') + ' N m (node frame)' : '–' }}</dd>
+          <dt>Last seen</dt><dd>{{ f.seconds_since_seen !== null ? mmss(f.seconds_since_seen) + ' ago' : '–' }} · {{ f.packets }} pkts</dd>
+          <dt>Radio</dt><dd>{{ f.rssi ?? '–' }} dBm · {{ f.hops ?? '–' }} hops</dd>
+        </dl>
+      </article>
+    } @else {
+      <p class="muted small hint">Select a soldier on the map or in the table to see their vitals.</p>
+    }
+  </section>
+
+  <section class="panel alerts-panel">
+    <div class="panel-head"><h2>Alert log</h2><span class="muted mono small">{{ st?.stats?.alerts ?? 0 }} alerts</span></div>
+    <ol class="alerts">
+      @for (a of (st?.alerts ?? []).slice(0, 30); track a.t_s + '-' + a.soldier_id + '-' + a.code) {
+        <li [attr.data-sev]="a.severity" [class.selected]="a.soldier_id === selected()" (click)="select(a.soldier_id)">
+          <span class="mono muted">{{ mmss(a.t_s) }}</span>
+          <span class="mono callsign-sm">{{ a.callsign }}</span>
+          <span class="alert-label">{{ a.label }}</span>
+          <span class="mono muted">HR {{ a.hr_bpm ?? '–' }}</span>
+        </li>
+      } @empty {
+        <li class="muted empty">Radio silent. Nodes transmit only on alerts and randomized check-ins.</li>
+      }
+    </ol>
+  </section>
+
+  <section class="panel briefing-panel">
+    <div class="panel-head">
+      <h2>AI Briefing</h2>
+      <button class="btn btn-primary" (click)="c2.briefNow()" [disabled]="c2.briefingBusy()">
+        {{ c2.briefingBusy() ? 'Generating…' : 'Brief now' }}</button>
+    </div>
+    @if (c2.latestBriefing(); as b) {
+      <p class="briefing-text">{{ b.text }}</p>
+      <div class="briefing-meta mono">
+        <span class="tag" [class.tag-llm]="b.source === 'llm'">{{ b.source === 'llm' ? b.model : 'rule template' }}</span>
+        <span>{{ b.trigger }}</span><span>T+{{ mmss(b.mission_time_s) }}</span><span>{{ b.latency_ms }} ms</span>
+      </div>
+      @if (b.note) { <div class="briefing-note">{{ b.note }}</div> }
+    } @else {
+      <p class="muted">No briefing yet. One is generated automatically on critical alerts and squad-level events.</p>
+    }
+    @if (st?.squad_events?.length) {
+      <h3>Squad-level events</h3>
+      <ul class="events">
+        @for (e of st!.squad_events.slice(0, 4); track e.t_s + e.sector + e.kind) {
+          <li [class.ev-contact]="e.kind === 'POSSIBLE_CONTACT'">
+            <b>{{ e.kind === 'POSSIBLE_CONTACT' ? 'Possible contact' : e.kind }} · {{ e.sector }}</b>
+            <span>{{ e.detail }}</span>
+            <span class="mono muted">T+{{ mmss(e.t_s) }}</span>
+          </li>
+        }
+      </ul>
+    }
+  </section>
+</main>
+
+@if (st?.source === 'sim' && !c2.mockMode) {
+  <footer class="controls">
+    <span class="controls-label">Demo scenarios</span>
+    @for (sc of scenarios; track sc.id) {
+      <button class="btn" (click)="c2.scenario(sc.id)">{{ sc.label }}</button>
+    }
+    <button class="btn btn-ghost" (click)="c2.scenario('reset'); selected.set(null)">Reset</button>
+  </footer>
+}

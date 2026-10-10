@@ -1,0 +1,92 @@
+import csv
+
+from fastapi.testclient import TestClient
+
+from app.gps import GpsFix, GpsStore
+from app.main import app
+
+FIX = {"device_id": "P1", "fix_unix_ms": 1760000000000, "lat": 37.5665, "lon": 126.978,
+       "accuracy_m": 4.8, "heading_gps_deg": None, "heading_compass_deg": 372.5, "speed_mps": 0.2}
+
+
+def test_heading_choice():
+    assert GpsFix(**FIX).heading() == (12.5, "compass")             # normalised, stationary -> compass
+    moving = GpsFix(**FIX | {"heading_gps_deg": 90.0, "speed_mps": 1.5})
+    assert moving.heading() == (90.0, "gps")
+    assert GpsFix(**FIX | {"heading_compass_deg": None}).heading() == (None, "none")
+
+
+def test_store_writes_csv(tmp_path):
+    s = GpsStore(log_dir=tmp_path)
+    s.ingest(GpsFix(**FIX))
+    s.close()
+    with s.csv_path.open(encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    assert list(rows[0])[:6] == ["time_local", "device_id", "latitude_deg", "longitude_deg",
+                                 "accuracy_m", "heading_deg"]
+    assert rows[0]["latitude_deg"] == "37.5665" and rows[0]["heading_deg"] == "12.5"
+    assert rows[0]["heading_gps_course_deg"] == "" and rows[0]["heading_source"] == "compass"
+    assert s.log_path("../secret.csv") is None and s.log_path(s.csv_path.name) == s.csv_path
+
+
+def test_api_roundtrip():
+    with TestClient(app) as c:
+        assert c.get("/gps").status_code == 200
+        r = c.post("/api/gps", json=FIX)
+        assert r.status_code == 200 and r.json()["heading_deg"] == 12.5
+        assert c.post("/api/gps", json=FIX | {"lat": 123}).status_code == 422
+        assert c.post("/api/gps", json=FIX | {"device_id": "x/../y"}).status_code == 422
+        dev = c.get("/api/gps").json()["devices"][0]
+        assert dev["device_id"] == "P1" and dev["track"] == [[37.5665, 126.978]]
+        assert c.get("/api/state").json()["gps"]["devices"][0]["accuracy_m"] == 4.8
+        assert c.get("/gps/pc").status_code == 200
+        csv_r = c.get("/api/gps/csv")
+        assert csv_r.status_code == 200 and "attachment" in csv_r.headers["content-disposition"]
+        assert csv_r.text.lstrip("\ufeff").splitlines()[0].startswith("time_local,device_id,latitude_deg,longitude_deg,accuracy_m,heading_deg")
+        name = c.get("/api/gps/logs").json()["files"][0]["name"]
+        assert c.get("/api/gps/csv", params={"name": name}).status_code == 200
+        assert c.get("/api/gps/csv", params={"name": "../app/main.py"}).status_code == 404
+
+
+def test_device_identity_and_conflict(tmp_path):
+    s = GpsStore(log_dir=tmp_path)
+    a = s.ingest(GpsFix(**FIX | {"device_id": "SM-S911N-3fa2", "device_name": "SM-S911N · Android 14\n"}), "172.20.10.3")
+    b = s.ingest(GpsFix(**FIX | {"device_id": "iPhone-7c1e", "device_name": "iPhone · iOS 18"}), "172.20.10.4")
+    assert a["device_name"] == "SM-S911N · Android 14" and a["client_ip"] == "172.20.10.3"
+    assert not a["id_conflict"] and not b["id_conflict"]
+    assert [d["device_id"] for d in s.snapshot()["devices"]] == ["SM-S911N-3fa2", "iPhone-7c1e"]
+    c = s.ingest(GpsFix(**FIX | {"device_id": "iPhone-7c1e"}), "172.20.10.5")
+    assert c["id_conflict"]
+    s.close()
+    with s.csv_path.open(encoding="utf-8-sig") as f:
+        rows = list(csv.DictReader(f))
+    assert rows[0]["device_name"] == "SM-S911N · Android 14" and rows[1]["client_ip"] == "172.20.10.4"
+
+
+def test_phone_binding_is_explicit_and_rejects_ambiguity():
+    from app import main
+    from app.protocol import Packet, PacketType, AlertCode, PACKET_SIZE
+    with TestClient(app) as c:
+        main.hub.engine.ingest(Packet(PacketType.CHECKIN, 2, 1, 0, AlertCode.NONE, None, 22.0, 0, None, None, 0, 0), 0, PACKET_SIZE)
+        assert c.post("/api/gps", json=FIX | {"soldier_id": 2}).status_code == 200
+        soldier = next(s for s in c.get("/api/state").json()["soldiers"] if s["soldier_id"] == 2)
+        assert soldier["gps"]["device_id"] == "P1"
+        assert c.post("/api/gps", json=FIX | {"soldier_id": 2, "device_id": "P2"}).status_code == 200
+        soldier = next(s for s in c.get("/api/state").json()["soldiers"] if s["soldier_id"] == 2)
+        assert soldier["gps"] is None
+        assert c.post("/api/gps", json=FIX | {"soldier_id": 256}).status_code == 422
+
+
+def test_phone_link_and_qr(tmp_path, monkeypatch):
+    from app import main
+    monkeypatch.setattr(main, "_CERT_IP_FILE", tmp_path / "ip.txt")
+    (tmp_path / "ip.txt").write_text("192.168.0.251")
+    with TestClient(app, base_url="https://testserver:8443") as c:
+        link = c.get("/api/phone-link?soldier=2").json()
+        assert link["url"] == "https://192.168.0.251:8443/gps?soldier=2" and link["https"]
+        r = c.get("/api/phone-qr.svg?soldier=2")
+        assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml") and "<svg" in r.text
+        assert c.get("/api/phone-link?soldier=0").status_code == 422
+    with TestClient(app, base_url="http://testserver:8000") as c:
+        link = c.get("/api/phone-link").json()
+        assert link["url"] == "https://192.168.0.251:8443/gps" and not link["https"]
