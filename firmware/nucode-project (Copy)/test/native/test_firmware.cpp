@@ -187,3 +187,5 @@ int main() {
   assert(pinWrites[STATUS_LED_BLUE]>0);
   puts("native firmware tests passed");
 }
+
+void logMessage(const char*, ...) {}

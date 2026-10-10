@@ -8,6 +8,7 @@ static uint32_t now;
 static uint8_t regs[256], address, sda;
 static bool ioError, badReadback, stuckReset;
 uint32_t millis() { return now; }
+int digitalRead(uint8_t) { return 1; }
 void logMessage(const char*, ...) {}
 void I2cBus::begin() {}
 bool I2cBus::probe(uint8_t a) { return !ioError && a == address && sdaPin() == sda; }

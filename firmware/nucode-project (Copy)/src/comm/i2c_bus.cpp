@@ -1,9 +1,11 @@
 #include "i2c_bus.h"
 #include "config.h"
+#include "i2c_hardware.h"
+#include "core/log.h"
 namespace {
 void low(uint8_t pin) { digitalWrite(pin, LOW); pinMode(pin, OUTPUT); }
 void release(uint8_t pin) { pinMode(pin, INPUT_PULLUP); }
-void halfCycle() { delayMicroseconds(10); }
+void halfCycle() { delayMicroseconds(25); }
 }
 bool I2cBus::clockHigh() {
   release(scl_);
@@ -20,6 +22,8 @@ bool I2cBus::clockHigh() {
   return true;
 }
 void I2cBus::begin() {
+  HardwareI2c::end();
+  hardware_ = false;
   release(sda_); release(scl_);
   error_ = Error::None; byteIndex_ = 0;
   started_ = millis(); budgetMs_ = SHORT_TIMEOUT_MS;
@@ -29,6 +33,8 @@ void I2cBus::begin() {
     if (!clockHigh()) break;
   }
   stop();
+  hardware_ = HardwareI2c::begin(sda_, scl_);
+  LOG("[i2c] SDA=%u SCL=%u hardware=%u\n", sda_, scl_, hardware_);
 }
 bool I2cBus::start() {
   release(sda_); halfCycle();
@@ -71,6 +77,7 @@ bool I2cBus::get(uint8_t& value, bool ack) {
 }
 bool I2cBus::probe(uint8_t address) {
   if (address < 0x08 || address > 0x77) return false;
+  if (hardware_) return hardwareTransfer(address, 0, nullptr, 0, false, true);
   error_ = Error::None; byteIndex_ = 0;
   started_ = millis(); budgetMs_ = SHORT_TIMEOUT_MS;
   const bool ack = step(start(),Error::Start) && step(put(address << 1),Error::Address);
@@ -82,6 +89,7 @@ bool I2cBus::probe(uint8_t address) {
 }
 bool I2cBus::read(uint8_t address, uint8_t reg, uint8_t* data, uint8_t count) {
   if (address > 0x7F || !data || count == 0) return false;
+  if (hardware_) return hardwareTransfer(address, reg, data, count, true, false);
   error_ = Error::None; byteIndex_ = 0;
   started_ = millis(); budgetMs_ = count > 4 ? BURST_TIMEOUT_MS : SHORT_TIMEOUT_MS;
   bool ok = step(start(),Error::Start) && step(put(address << 1),Error::Address)
@@ -95,6 +103,7 @@ bool I2cBus::read(uint8_t address, uint8_t reg, uint8_t* data, uint8_t count) {
   return ok && stopped;
 }
 bool I2cBus::write(uint8_t address, uint8_t reg, uint8_t value) {
+  if (hardware_) return hardwareTransfer(address, reg, &value, 1, false, false);
   if (address > 0x7F) return false;
   error_ = Error::None; byteIndex_ = 0;
   started_ = millis(); budgetMs_ = SHORT_TIMEOUT_MS;
@@ -109,6 +118,11 @@ bool I2cBus::write(uint8_t address, uint8_t reg, uint8_t value) {
 
 bool I2cBus::writeBlock(uint8_t address, uint8_t reg, const uint8_t* data, uint8_t count) {
   if (address > 0x7F || !data || !count || count > 16) return false;
+  if (hardware_) {
+    uint8_t buffer[16];
+    for (uint8_t i=0;i<count;++i) buffer[i]=data[i];
+    return hardwareTransfer(address, reg, buffer, count, false, false);
+  }
   error_ = Error::None; byteIndex_ = 0;
   started_ = millis(); budgetMs_ = count > 4 ? BURST_TIMEOUT_MS : SHORT_TIMEOUT_MS;
   bool ok = step(start(),Error::Start) && step(put(address << 1),Error::Address) && step(put(reg),Error::Register);
@@ -118,4 +132,15 @@ bool I2cBus::writeBlock(uint8_t address, uint8_t reg, const uint8_t* data, uint8
   if (firstError != Error::None) error_ = firstError;
   elapsedMs_ = millis() - started_;
   return ok && stopped;
+}
+
+bool I2cBus::hardwareTransfer(uint8_t address, uint8_t reg, uint8_t* data,
+                              uint8_t count, bool read, bool probe) {
+  const auto result = HardwareI2c::transfer(address, reg, data, count, read, probe,
+      count > 4 ? BURST_TIMEOUT_MS : SHORT_TIMEOUT_MS);
+  elapsedMs_ = result.elapsed;
+  byteIndex_ = result.received;
+  error_ = result.ok ? Error::None : result.timeout ? Error::Deadline :
+      (result.abortSource & 1) ? Error::Address : Error::Data;
+  return result.ok;
 }

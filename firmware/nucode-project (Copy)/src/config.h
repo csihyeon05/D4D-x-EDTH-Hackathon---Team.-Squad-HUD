@@ -8,11 +8,11 @@
 constexpr uint8_t PIN_TMP36 = A4;
 constexpr uint8_t PIN_PULSE = A5;
 // GPS UART (Serial1): GPS TX -> board RX, GPS RX -> board TX; pins follow the board variant.
-// NU-IMU: SDA=PB20, SCL=PB21 (both directions probed); TMP36=PB1, Pulse=PB2.
-constexpr uint8_t PIN_WIRE_SDA = 19;
-constexpr uint8_t PIN_WIRE_SCL = 18;
-constexpr char IMU_SDA_LABEL[] = "PB20";
-constexpr char IMU_SCL_LABEL[] = "PB21";
+// NU-IMU: SDA=PB21, SCL=PB20 (both directions probed); TMP36=PB1, Pulse=PB2.
+constexpr uint8_t PIN_WIRE_SDA = 18;
+constexpr uint8_t PIN_WIRE_SCL = 19;
+constexpr char IMU_SDA_LABEL[] = "PB21";
+constexpr char IMU_SCL_LABEL[] = "PB20";
 // NU87-TinyDK schematic: active-high RGB through SN74LVC3G17 buffers.
 constexpr uint8_t STATUS_LED_RED = 2;   // PA13
 constexpr uint8_t STATUS_LED_GREEN = 3; // PA12
@@ -23,9 +23,13 @@ constexpr uint8_t STATUS_LED_BLUE = 1;  // PA14
 #define CFG_IMU_DMP 0
 #endif
 
-// Only the IMU is currently fitted. Enable after wiring TMP36 and Pulse Sensor.
+// TMP36 is fitted on PB1. Pulse acquisition remains disabled until wired.
 #ifndef CFG_ANALOG
-#define CFG_ANALOG 0
+#define CFG_ANALOG 1
+#endif
+
+#ifndef CFG_PULSE
+#define CFG_PULSE 0
 #endif
 
 // ---- GPS ----

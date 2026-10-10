@@ -26,6 +26,7 @@ void setup() {
   statusLed.begin();
   Serial.begin(SERIAL_DEBUG_BAUD);
   beginLogging();
+  LOG("[fw] NU87-NUIMU-v4-HW-I2C built %s %s\n", __DATE__, __TIME__);
   bleReady = ble.begin();
   if (CFG_ANALOG) analogReady = analog.begin();
   imu.begin();
