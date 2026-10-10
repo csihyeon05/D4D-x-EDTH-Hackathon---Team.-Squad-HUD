@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "config.h"
 #include "core/periodic.h"
+#include "core/log.h"
 #include "core/fractional_ticks.h"
 #include "pulse_sensor.h"
 #include "tmp36.h"
@@ -27,6 +28,8 @@ void acquire(void*) {
   Periodic temperatureTick(10000);
   TickType_t scheduled = xTaskGetTickCount();
   uint32_t previous = micros(), gaps = 0;
+  uint32_t pulseWindowMs = millis(), pulseSamples = 0, clipped = 0;
+  uint16_t pulseMin = 4095, pulseMax = 0;
   for (;;) {
     const TickType_t step = cadence.next();
     vTaskDelayUntil(&scheduled, step);
@@ -36,7 +39,22 @@ void acquire(void*) {
     const uint32_t now = micros();
     if ((uint32_t)(now - previous) > periodUs * 2) ++gaps;
     previous = now;
-    if (CFG_PULSE) { pulse.sample(); PulseTrace::sample(pulse.raw(), millis()); }
+    if (CFG_PULSE) {
+      pulse.sample();
+      const uint16_t raw = pulse.raw();
+      const uint32_t ms = millis();
+      PulseTrace::sample(raw, ms);
+      if (raw < pulseMin) pulseMin = raw;
+      if (raw > pulseMax) pulseMax = raw;
+      ++pulseSamples;
+      if (raw <= ADC_SCALE / 100 || raw >= ADC_SCALE * 95 / 100) ++clipped;
+      if (uint32_t(ms - pulseWindowMs) >= 1000) {
+        LOG("PULSE,min=%u,max=%u,n=%lu,clip=%lu,bpm=%u\n", pulseMin, pulseMax,
+            (unsigned long)pulseSamples, (unsigned long)clipped, pulse.bpm());
+        pulseWindowMs = ms; pulseSamples = clipped = 0;
+        pulseMin = 4095; pulseMax = 0;
+      }
+    }
     if (CFG_TMP36 && temperatureTick.due(micros())) temperature.sample();
     Reading reading{{millis(), temperature.readCelsiusX100(), uint16_t(CFG_PULSE ? pulse.bpm() : 0), uint16_t(CFG_PULSE ? pulse.raw() : 0)}, gaps};
     xQueueOverwrite(readings, &reading);

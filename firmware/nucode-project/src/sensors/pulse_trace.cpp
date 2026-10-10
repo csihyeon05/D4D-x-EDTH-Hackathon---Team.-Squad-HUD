@@ -14,7 +14,7 @@ uint32_t startMs=0,endMs=0,lastPrint=0;
 std::atomic<bool> ready{false};
 }
 void sample(uint16_t raw,uint32_t ms) {
-  if (ms<5000 || count==1024) return;
+  if (ms<30000 || count==1024) return;
   if (!count) startMs=ms;
   samples[count++]=raw;
   if (count==1024) {endMs=ms;ready.store(true);}

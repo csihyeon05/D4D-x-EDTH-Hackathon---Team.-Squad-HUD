@@ -2,22 +2,21 @@
 #include <stdint.h>
 #include "node/packet.h"
 
-// Sends each packet as a short burst of non-connectable BLE advertisements
-// (docs/DATA_SPEC.md section 5). Radio is silent between bursts.
+// Dedicated non-connectable broadcaster. Updates data without stopping BLE.
 class Advertiser {
 public:
   bool begin();
-  // Queue a packet; replaces one still waiting. Sent on the next update().
   void send(const uint8_t packet[node::PACKET_SIZE]);
   void update(uint32_t nowMs);
-  uint32_t sent() const { return sent_; }
-  // Board BLE address, for seeding random().
+  void logStatus(uint32_t nowMs) const;
+  uint32_t sent() const { return completed_; } // Controller updates, NOT receiver acknowledgements.
   uint32_t addressHash() const;
-
 private:
-  enum class State : uint8_t { Idle, Bursting };
-  State state_ = State::Idle;
   uint8_t advert_[node::ADVERT_SIZE] = {};
-  bool pending_ = false;
-  uint32_t burstStartMs_ = 0, lastStopMs_ = 0, sent_ = 0;
+  bool pending_ = false, inFlight_ = false, timedOut_ = false;
+  uint32_t queued_ = 0, accepted_ = 0, completed_ = 0, failures_ = 0;
+  uint32_t timeouts_ = 0, starts_ = 0, requestedMs_ = 0, lastAttemptMs_ = 0;
+  uint32_t completedMs_ = 0;
+  uint16_t cause_ = 0;
+  uint8_t gapState_ = 255;
 };

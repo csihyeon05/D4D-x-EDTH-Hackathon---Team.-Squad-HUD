@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include "pulse_filter.h"
 
 // Analog Pulse Sensor with PulseSensor Playground-style beat detection.
 // Call sample() periodically at PULSE_PERIOD_US.
@@ -22,6 +23,7 @@ private:
   uint32_t previousMs_ = 0;
   bool sampled_ = false;
 
+  PulseFilter filter_;
   uint16_t raw_ = 0;
   uint16_t bpm_ = 0;
   uint16_t ibi_ = 600;

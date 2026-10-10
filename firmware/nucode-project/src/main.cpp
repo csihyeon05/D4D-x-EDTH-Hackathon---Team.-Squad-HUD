@@ -98,7 +98,7 @@ void nodeStep(uint32_t nowMs) {
   uint8_t bytes[node::PACKET_SIZE];
   node::encode(packet, bytes);
   radio.send(bytes);
-  LOG("TX,t_s=%lu,type=%u,code=0x%02X,seq=%u,hr=%u,temp_c_x100=%d,x_dm=%d,y_dm=%d\n",
+  LOG("TX_QUEUE,t_s=%lu,type=%u,code=0x%02X,seq=%u,hr=%u,temp_c_x100=%d,x_dm=%d,y_dm=%d\n",
       (unsigned long)tS, unsigned(packet.type), unsigned(packet.code), packet.seq,
       packet.hrBpm, packet.skinTempCx100, packet.xDm, packet.yDm);
 }
@@ -165,6 +165,7 @@ void loop() {
         unsigned(CFG_IMU_MODEL), imu.ok(), unsigned(CFG_TMP36), unsigned(CFG_PULSE), unsigned(CFG_GPS),
         (unsigned long)imu.samples(), (unsigned long)imu.readErrors(), (unsigned long)imu.restarts());
     nodeStep(millis());
+    radio.logStatus(millis());
   }
   if (radioReady) radio.update(millis());
 

@@ -15,7 +15,7 @@ Nodes send current display telemetry once per second:
 | Check-in timer expires | `CHECKIN` (0x2) | Every 1 s, without jitter |
 | Power-on | `CHECKIN` (0x2) | Live check-ins start without waiting for baseline collection |
 
-A check-in contains current BPM, temperature, activity and local position. Alerts replace the routine packet for that second. Local baseline averaging runs independently; the commander currently takes its first valid check-in values as its baseline. Raw waveforms are not transmitted. BLE advertisements are repeated for 300 ms to improve reception; delivery is not acknowledged.
+A check-in contains current BPM, temperature, activity and local position. Alerts replace the routine packet for that second. Local baseline averaging runs independently; the commander currently takes its first valid check-in values as its baseline. Raw waveforms are not transmitted. BLE advertisements repeat continuously until the next live update; delivery is not acknowledged.
 
 ## 2. Packet layout (18 bytes, little-endian)
 
@@ -60,7 +60,7 @@ A relaying node changes only `hops` (+1) and `crc8` (recomputed), and drops any 
 2. Position: GPS when it has a fix. Otherwise PDR (step detection on \|accel\|, Weinberg stride length, DMP yaw heading; reference: `commander-hq/backend/app/analysis/pdr.py`) continues from the last GPS position. The PDR heading offset to true north is learned from GPS tracks.
 3. Origin: a shared area-of-operations point if the node is built with one; otherwise the node's power-on position. Only a shared origin puts all soldiers in one frame.
 4. Every second, evaluate the rules in section 3. Reference: `node_rules.py`. Rules whose inputs have no reading are skipped.
-5. When a rule fires or a timer expires, build the packet and send one advertising burst (section 5) at the lowest TX power that reaches the next hop. (TX power control is not implemented yet.)
+5. When a rule fires or a timer expires, build the packet and update the continuously advertised data (section 5) at the lowest TX power that reaches the next hop. (TX power control is not implemented yet.)
 
 ## 5. Radio: BLE advertising
 
@@ -73,7 +73,7 @@ Nodes never connect. Each packet is a legacy, non-connectable advertisement (`AD
 
 25 of 31 bytes used. `0xFFFF` is the Bluetooth SIG company ID for testing and internal use. Other devices may use it, so receivers must check length, version and CRC.
 
-Advertisements are not acknowledged, so a node repeats the same packet (same `seq`) in a burst, then stops. Burst: 20–30 ms advertising interval for 300 ms (demo default). Verify with packet counts on hardware.
+Advertisements are not acknowledged. A node repeats the latest packet (same `seq`) every 100–120 ms and updates the payload once per second without stopping advertising. Verify reception independently; controller update completion does not prove on-air delivery.
 
 ## 6. Gateway → commander (USB serial, 115200 baud)
 

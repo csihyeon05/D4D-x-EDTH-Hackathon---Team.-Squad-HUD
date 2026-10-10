@@ -8,7 +8,8 @@ raw_binary="${test_binary}.raw"
 lsm_binary="${test_binary}.lsm"
 hw_binary="${test_binary}.hw"
 heading_binary="${test_binary}.heading"
-trap 'rm -f "$test_binary" "$dmp_binary" "$node_binary" "$raw_binary" "$lsm_binary" "$hw_binary" "$heading_binary"' EXIT HUP INT TERM
+radio_binary="${test_binary}.radio"
+trap 'rm -f "$test_binary" "$dmp_binary" "$node_binary" "$raw_binary" "$lsm_binary" "$hw_binary" "$heading_binary" "$radio_binary"' EXIT HUP INT TERM
 flags="-std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -DSOLDIER_ID=1 -Itest/native -Isrc"
 c++ $flags \
   test/native/test_firmware.cpp src/sensors/nmea_parser.cpp \
@@ -29,3 +30,6 @@ c++ $flags -Itest/hardware -DBOARD_AMB26 test/hardware/test_hardware.cpp src/com
 c++ $flags test/native/test_raw_heading.cpp src/node/motion.cpp -o "$heading_binary"
 "$heading_binary"
 NODE_BINARY="$node_binary" python3 -m unittest discover -s test -p 'test_*.py' -v
+
+c++ $flags -Itest/radio test/radio/test_advertiser.cpp src/comm/advertiser.cpp -o "$radio_binary"
+"$radio_binary"

@@ -78,10 +78,10 @@ static_assert(SOLDIER_ID >= 1 && SOLDIER_ID <= 255, "SOLDIER_ID must be 1..255")
 #error "Define both AO_ORIGIN_LAT_E7 and AO_ORIGIN_LON_E7, or neither"
 #endif
 
-// ---- Radio: BLE advertising bursts ----
-constexpr uint16_t ADV_INTERVAL_MIN_MS = 20;  // demo defaults; verify packet counts on hardware
-constexpr uint16_t ADV_INTERVAL_MAX_MS = 30;
-constexpr uint32_t ADV_BURST_MS = 300;
+// ---- Radio: continuous BLE advertising, refreshed once per second ----
+constexpr uint16_t ADV_INTERVAL_MIN_MS = 100; // Conservative legacy non-connectable interval
+constexpr uint16_t ADV_INTERVAL_MAX_MS = 120;
+
 // GPS comes from the phone over Wi-Fi to the backend. UART GPS is optional.
 #ifndef CFG_GPS
 #define CFG_GPS 0

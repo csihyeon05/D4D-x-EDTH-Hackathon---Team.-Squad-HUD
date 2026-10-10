@@ -142,6 +142,37 @@ int main() {
     jittered.sample();
   }
   assert(jittered.bpm() >= 59 && jittered.bpm() <= 61);
+  // Mains-frequency interference alone must not look like fast heartbeats.
+  for (int hz : {50, 60, 100, 120}) {
+    PulseSensor interference(3), contaminated(3);
+    for (nowMs = 0; nowMs < 20000; nowMs += 2) {
+      const int noise = int(700 * sin(6.28318530718 * hz * nowMs / 1000.0));
+      adc = 2048 + noise; interference.sample();
+      if (nowMs > 3000) assert(interference.bpm() == 0);
+      adc = 2048 + noise + ((nowMs % 1000 >= 500 && nowMs % 1000 < 550) ? 400 : 0);
+      contaminated.sample();
+    }
+    assert(contaminated.bpm() >= 58 && contaminated.bpm() <= 62);
+  }
+  // Replay the recorded no-contact ADC noise without inventing a heart rate.
+  FILE* trace = fopen("test/fixtures/pulse-no-contact.txt", "r");
+  assert(trace);
+  int recorded[1024];
+  for (auto& value : recorded) assert(fscanf(trace, "%d", &value) == 1);
+  fclose(trace);
+  PulseSensor recordedNoise(3);
+  for (unsigned i = 0; i < 1024 * 10; ++i) {
+    nowMs = i * 2; adc = recorded[i % 1024]; recordedNoise.sample();
+    assert(recordedNoise.bpm() == 0);
+  }
+  for (int expected : {40, 60, 90, 120, 180}) {
+    PulseSensor cadence(3);
+    for (nowMs = 0; nowMs < 30000; nowMs += 2) {
+      adc = 2048 + int(300 * sin(6.28318530718 * expected * nowMs / 60000.0));
+      cadence.sample();
+    }
+    assert(abs(int(cadence.bpm()) - expected) <= 2);
+  }
   // Random UART bytes, malformed framing, then a valid sentence must recover.
   uint32_t random = 42;
   for (int i = 0; i < 50000; ++i) {

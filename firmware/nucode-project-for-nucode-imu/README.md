@@ -3,7 +3,7 @@
 
 Node firmware for the NUCODE NU-87 Tiny DK (RTL8720DF) with either an MPU6050 or NU-IMU (LSM6DS3-family), TMP36GT9Z temperature sensor and optional analog Pulse Sensor. Phone GPS reaches the backend over Wi-Fi; UART GPS is disabled by default. Built with the official Realtek AmebaD **3.1.9** Arduino core, board **AMB26**.
 
-The node transmits current BPM, temperature, activity and position every second from startup. Alerts replace the routine packet for that second. Each transmission is an 18-byte packet sent as a short burst of BLE advertisements to `commander-firmware`. Packet, rules and radio format: [docs/DATA_SPEC.md](../docs/DATA_SPEC.md).
+The node transmits current BPM, temperature, activity and position every second from startup. Alerts replace the routine packet for that second. Each transmission is an 18-byte packet published through continuous BLE advertisements to `commander-firmware`. Packet, rules and radio format: [docs/DATA_SPEC.md](../docs/DATA_SPEC.md).
 
 ## Wiring
 
@@ -60,7 +60,7 @@ At power-on the soldier stands still, facing north, while the node collects a re
 
 1. **Baseline:** resting heart rate and skin temperature are averaged over 20 valid seconds of each, or whatever was collected after 120 s. This local alert baseline is collected independently of transmission. Every packet contains current measurements, including during baseline collection. The existing commander uses its first valid check-in values as its own baseline; these are not necessarily the local averages.
 2. **Every second:** the node evaluates the alert rules (DATA_SPEC section 3) and sends an `ALERT` if one fires; otherwise a `CHECKIN` every second. It does not wait for the baseline or replace current values with averages.
-3. **Each packet:** sent as non-connectable advertisements every 20–30 ms for 300 ms, then the radio stops. `seq` starts at a random value at boot, so a rebooted node is not mistaken for a duplicate.
+3. **Each packet:** repeated as non-connectable advertisements every 100–120 ms until the next one-second update. The radio stays enabled. `seq` starts at a random value at boot, so a rebooted node is not mistaken for a duplicate.
 
 **Inputs to the rules:**
 
@@ -122,10 +122,10 @@ QUAT,t_ms=15000,w_q30=1073741824,x_q30=0,y_q30=0,z_q30=0
 VITALS,t_ms=15000,temp_c_x100=2500,bpm=60,pulse_raw=1800
 GPS,t_ms=15000,lat_e7=0,lon_e7=0,alt_cm=0,speed_cms=0,fix=0,sats=0
 NODE,t_s=15,activity=2,x_dm=0,y_dm=0,pos=pdr,steps=0,baseline=0,sample_gaps=0
-TX,t_s=21,type=2,code=0x00,seq=40213,hr=64,temp_c_x100=3350,x_dm=0,y_dm=0
+TX_QUEUE,t_s=21,type=2,code=0x00,seq=40213,hr=64,temp_c_x100=3350,x_dm=0,y_dm=0
 ```
 
-`IMU`, `QUAT`, `VITALS` and `GPS` print once per second (`IMU` only when valid; `QUAT` only with a settled DMP). Each second prints either `NODE` (state, nothing sent) or `TX` (packet queued for sending; `type` 1 = alert, 2 = check-in). `activity=-1` means no valid IMU data.
+`IMU`, `QUAT`, `VITALS` and `GPS` print once per second (`IMU` only when valid; `QUAT` only with a settled DMP). Each second prints either `NODE` (state, nothing sent) or `TX_QUEUE` (packet queued for sending; `type` 1 = alert, 2 = check-in). `activity=-1` means no valid IMU data.
 
 ## Tests
 
@@ -138,11 +138,11 @@ sh tools/test.sh
 - **Node logic:** packet encoding, advertisement layout, activity, heading, PDR, GPS/PDR fusion and heading calibration, baseline, check-in timing, rule handling of missing readings.
 - **Parity with `commander-hq/backend`:** the same inputs through the C++ code and the Python reference must give identical packets (500 random) and alert decisions (20 × 1500 s scenarios), and matching PDR tracks.
 
-`main.cpp` and `comm/advertiser.cpp` use the Realtek API and are only compiled by the Arduino build. Tests do not establish sensor accuracy, radio range, current draw or wiring. Hardware evidence and remaining checks: [docs/power-validation.md](docs/power-validation.md).
+`comm/advertiser.cpp` also runs against native API fakes covering successful updates, delayed callbacks, rejection, timeout and idle restart. The Arduino build checks the real SDK API. Tests do not establish sensor accuracy, radio range, current draw or wiring. Hardware evidence and remaining checks: [docs/power-validation.md](docs/power-validation.md).
 
 ## Not yet done
 
-- NU-IMU acquisition and PC BLE reception passed a bench run; see [integration validation](../docs/sensor-integration-validation.md). Physical commander reception, radio burst duration, and on-air packet counts still need measurement.
+- NU-IMU acquisition and PC BLE reception passed a bench run; see [integration validation](../docs/sensor-integration-validation.md). Physical commander reception and on-air packet counts still need independent measurement. See the latest continuous-advertising validation record.
 - Lowest-power transmission: the Arduino BLE API has no TX power setting.
 - Relaying other nodes' packets (`hops` is always 0).
 - Report buttons and a gas sensor.
@@ -157,7 +157,7 @@ sh tools/test.sh
 
 ## Optional pulse diagnostics
 
-`CFG_PULSE_TRACE=1` records 1024 raw ADC samples at the configured pulse cadence, starting five seconds after boot, then prints `PTRACE` hex blocks at 9600 baud. `PTRACE_TIME` reports the first and last sample times. Acquisition finishes before printing begins. This option is off by default and uses a fixed buffer. Check block indices for missing log lines before analyzing a recording.
+`CFG_PULSE_TRACE=1` records 1024 raw ADC samples at the configured pulse cadence, starting thirty seconds after boot, then prints `PTRACE` hex blocks at 9600 baud. `PTRACE_TIME` reports the first and last sample times. Acquisition finishes before printing begins. This option is off by default and uses a fixed buffer. Check block indices for missing log lines before analyzing a recording.
 
 Bench capture on 2026-10-11 showed repeated flat upper plateaus around raw 3930 and troughs down to 19. These clipped waveforms cannot substantiate the displayed 200+ BPM. The quality gate prevents reporting them as a usable heart rate; proper skin contact, pressure, light shielding and reference-rate comparison remain necessary.
 
@@ -168,3 +168,32 @@ This folder now sends the 18-byte BLE advertisement expected by the NU40 command
 Default profile: `SOLDIER_ID=2 IMU_MODEL=lsm6ds3 CFG_PULSE=0 CFG_GPS=0`. TMP36 is enabled. Override `CFG_PULSE=1` if a pulse sensor is fitted to the NU-IMU board.
 
 Run `sh tools/nu87.sh upload /dev/ttyUSB0`. Run tests with `BACKEND_ROOT=/path/to/tactical-c2/backend sh tools/test.sh`.
+
+## Continuous advertising diagnostics
+
+`RADIO` prints once per second. `q` counts queued measurements, `req` counts
+accepted update requests and `done` counts successful controller callbacks.
+None proves receiver delivery. `gap=2` is ADVERTISING in AmebaD 3.1.9; `wait`
+indicates an outstanding update, `cause` the latest SDK result, and `age` the
+milliseconds since the last successful completion (4294967295 before any).
+`fail`, `timeout` and `start` expose rejected operations, missing responses and
+idle restart attempts. A request older than two seconds is flagged; requests
+are not overlapped, and late callbacks are handled without counting them twice.
+
+The dedicated non-connectable broadcaster owns the GAP application callback.
+Adding GATT connections or scanning requires callback dispatch integration.
+`le_adv_set_param(GAP_PARAM_ADV_DATA, ...)` plus `le_adv_update_param()` updates
+only data while advertising, as documented in the installed SDK gap_adv.h.
+No per-second start/stop or full parameter reset is used. Continuous advertising
+increases radio duty cycle; no battery-life claim is made.
+
+`PULSE` reports each one-second raw ADC minimum, maximum, sample count, clipped
+sample count and BPM. A narrow range without a periodic waveform cannot support
+a reliable BPM; missing readings remain unknown instead of retaining old BPM.
+
+Pulse detection now removes a slow DC baseline and applies two approximately
+5 Hz low-pass stages before beat detection. Raw clipping still invalidates BPM;
+the filter does not repair clipped or missing optical signals. Tests cover
+40/60/90/120/180 BPM, added 50/60/100/120 Hz interference, and a recorded
+no-contact trace. Contact accuracy after filtering still requires a physical
+reference comparison; a plausible number alone is not validation.

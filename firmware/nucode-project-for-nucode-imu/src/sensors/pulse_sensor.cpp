@@ -14,12 +14,14 @@ void PulseSensor::resetDetection(uint32_t now, int signal) {
 void PulseSensor::sample() {
   const uint32_t sample = analogRead(pin_);
   raw_ = sample > 4095 ? 4095 : sample;
-  const int sig = raw_ >> (ADC_BITS - 10);  // Normalize to a 10-bit scale.
+  const int input = raw_ >> (ADC_BITS - 10);  // Normalize to a 10-bit scale.
 
   const uint32_t now = millis();
   // A long sampling gap invalidates the beat history; never invent samples.
-  if (!sampled_ || (uint32_t)(now - previousMs_) > 20) {
-    resetDetection(now, sig);
+  const uint32_t dt = sampled_ ? uint32_t(now - previousMs_) : 0;
+  if (!sampled_ || dt > 20) {
+    filter_.reset(input);
+    resetDetection(now, 512);
   }
   sampled_ = true;
   previousMs_ = now;
@@ -31,10 +33,12 @@ void PulseSensor::sample() {
     clipping_ = true;
   }
   if (clipping_ && uint32_t(now - lastClippedMs_) < 1000) {
-    resetDetection(now, sig);
+    filter_.reset(input);
+    resetDetection(now, 512);
     return;
   }
   clipping_ = false;
+  const int sig = filter_.update(input, dt <= 20 ? dt : 0);
   const int32_t n = (int32_t)(sampleCounter_ - lastBeat_);
 
   if (sig < thresh_ && n > (ibi_ / 5) * 3 && sig < trough_) trough_ = sig;
