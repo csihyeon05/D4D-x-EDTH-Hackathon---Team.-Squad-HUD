@@ -1,116 +1,170 @@
-# NU-87 Tiny DK HUD Sensor Firmware
+<!-- This project intentionally replaces the earlier NUS sender. -->
+# Soldier Firmware: mpu6050
 
-Modular firmware for the NUCODE NU-87 Tiny DK (RTL8720DF), MPU6050, TMP36GT9Z, analog Pulse Sensor, and UART NMEA GPS. MPU6050 currently uses raw register acquisition (`CFG_IMU_DMP=0`). Optional orientation uses MotionApps DMP 6.12 (`CFG_IMU_DMP=1`). Uses the official Realtek AmebaD **3.1.9** Arduino core and **AMB26 (RTL8720DF)** target, as specified by NUCODE's start guide. The previous NU40/nRF52840 PlatformIO target is no longer active.
+Node firmware for the NUCODE NU-87 Tiny DK (RTL8720DF) with either an MPU6050 or NU-IMU (LSM6DS3-family), TMP36GT9Z temperature sensor and optional analog Pulse Sensor. Phone GPS reaches the backend over Wi-Fi; UART GPS is disabled by default. Built with the official Realtek AmebaD **3.1.9** Arduino core, board **AMB26**.
+
+The node is radio-silent except for alerts and a randomized check-in. Each transmission is an 18-byte packet sent as a short burst of BLE advertisements to `commander-firmware`. Packet, rules and radio format: [docs/DATA_SPEC.md](../docs/DATA_SPEC.md).
 
 ## Wiring
 
-Use the MCU signal names printed on the board. Header positions below are from the manufacturer's NU87-TinyDK schematic, not Arduino D-number labels. All sensors share GND. Use 3.3V logic; no input is intended for 5V signals.
+Use the MCU signal names printed on the board. Header positions come from NUCODE's NU87-TinyDK schematic, not Arduino D-numbers. All sensors share GND and use 3.3V logic; no input tolerates 5V.
 
-| Signal | NU-87 connection | Arduino index | Header |
+| Signal | NU-87 pin | Arduino index | Header |
 |---|---|---|---|
-| MPU6050 SDA (preferred) | PB20 | 19 | P2 pin 7 |
-| MPU6050 SCL (preferred) | PB21 | 18 | P2 pin 8 |
+| NU-IMU SDA / MPU6050 SCL | PB21 | 18 | P2 pin 8 |
+| NU-IMU SCL / MPU6050 SDA | PB20 | 19 | P2 pin 7 |
 | TMP36 VOUT | PB1 / A4 | 11 | P2 pin 5 |
 | Pulse Sensor signal | PB2 / A5 | 10 | P2 pin 4 |
-| GPS TX -> board RX | PB18 / Serial1 RX | 17 | P2 pin 9 |
-| GPS RX <- board TX (optional) | PB19 / Serial1 TX | 16 | P2 pin 10 |
-| RGB red (onboard) | PA13 | 2 | LED control disabled during diagnostics |
-| RGB green (onboard) | PA12 | 3 | LED control disabled during diagnostics |
+| GPS TX → board RX | PB18 / Serial1 RX | 17 | P2 pin 9 |
+| GPS RX ← board TX (optional) | PB19 / Serial1 TX | 16 | P2 pin 10 |
+| RGB red (onboard) | PA13 | 2 | P1 pin 3; reserved |
+| RGB green (onboard) | PA12 | 3 | P1 pin 2; reserved |
 | RGB blue (onboard) | PA14 | 1 | P1 pin 4; reserved |
 
-- Power TMP36 and the analog Pulse Sensor from 3.3V. TMP36 TO-92 pin numbers are 1=+VS, 2=VOUT, 3=GND; verify the datasheet's package view. Place a 100nF bypass capacitor near the TMP36 supply pins.
-- MPU6050 breakout supply requirements depend on its regulator. Use a breakout compatible with 3.3V operation and pull SDA/SCL up to **3.3V**, typically with 4.7k resistors if not already fitted. AD0=GND selects 0x68; AD0=3.3V selects 0x69. Both are probed. INT is not used.
-- MPU6050 uses software I2C on PB21/PB20. Initialization probes both SDA/SCL directions and addresses 0x68/0x69, retaining the mapping only when WHO_AM_I is 0x68. PB21/PB20 are MCU names; Arduino indices are 18/19 respectively. The native USB PA25/PA26 nets are not used by this sensor.
-- GPS is disabled by default (`CFG_GPS=0`) because no module is fitted. To add one, enable it and use Serial1, 9600 baud, NMEA GGA/RMC. Match `GPS_BAUD` and the supply voltage to the actual GPS module. A UBX-only stream is unsupported. GPS RX may be left disconnected; this firmware sends no GPS commands.
-- PA7/PA8 are reserved for the onboard CP2102N USB-UART. PA27/PB3 are debug/boot-related signals. PA28 is a USB reference-resistor connection. Do not reuse them for these sensors.
+- **TMP36 and Pulse Sensor:** power from 3.3V. TMP36 TO-92 pins: 1 = +VS, 2 = VOUT, 3 = GND (check the datasheet package view). Fit a 100nF bypass capacitor near the TMP36 supply pins.
+- **MPU6050:** use a 3.3V-compatible breakout with SDA/SCL pulled up to 3.3V (typically 4.7k, if not already fitted). AD0 = GND gives address 0x68, AD0 = 3.3V gives 0x69; both are probed. INT is not used. Mount the board with its z axis vertical; heading assumes it.
+- **Optional UART GPS (`CFG_GPS=1` only):** Serial1, 9600 baud, NMEA GGA/RMC. Match `GPS_BAUD` and supply voltage to the module. UBX-only output is unsupported. GPS RX may be left disconnected; the firmware sends no GPS commands.
+- **Do not use:** PA25/PA26 (native USB), PA7/PA8 (onboard CP2102N USB-UART), PA27/PB3 (debug/boot), PA28 (USB reference resistor).
 
-Pin assignments and timing are in `src/config.h`. Ameba analogRead uses factory calibration and returns millivolts scaled by `2^ADC_BITS / 3300`; the TMP36 conversion uses that exact denominator. A floating analog input can still produce plausible values: the firmware cannot prove a sensor is physically attached.
+Pins and timing are set in `src/config.h`. Ameba `analogRead` uses factory calibration and returns millivolts scaled by `2^ADC_BITS / 3300`; the TMP36 conversion uses the same denominator. A floating analog input can still read plausible values, so the firmware cannot detect a missing sensor.
 
-## Build, Upload, and Monitor
+## Build, upload, monitor
 
-Install Arduino CLI and put it on PATH or at `~/.local/bin/arduino-cli`; alternatively set `ARDUINO_CLI` to its full path. Then run from this directory:
+Requires Arduino CLI on `PATH`, at `~/.local/bin/arduino-cli`, or set in `ARDUINO_CLI`. Every board needs its own `SOLDIER_ID` (1..255); the build fails without one.
 
 ```sh
-sh tools/nu87.sh setup
-sh tools/nu87.sh build
-sh tools/nu87.sh upload /dev/ttyUSB0
-sh tools/nu87.sh monitor /dev/ttyUSB0
+sh tools/nu87.sh setup                                # once: installs Realtek AmebaD 3.1.9
+SOLDIER_ID=1 IMU_MODEL=mpu6050 sh tools/nu87.sh build
+# Current NU-IMU + TMP36 hardware; no pulse sensor or UART GPS fitted:
+SOLDIER_ID=2 IMU_MODEL=lsm6ds3 CFG_PULSE=0 CFG_GPS=0 sh tools/nu87.sh upload /dev/ttyUSB0
+sh tools/nu87.sh monitor /dev/ttyUSB0                 # 9600 baud
 ```
 
-`setup` pins Realtek AmebaD to 3.1.9. The script stages `src/` as a recursive Arduino sketch in ignored `.build/`, compiles for AMB26, enables Auto Upload Mode and uses 921600 baud for flashing. Debug output remains 9600 baud. Specify the actual board port explicitly when uploading. Old PlatformIO commands stop rather than targeting the wrong processor.
+Optional shared map origin, so all soldiers' positions share one frame once GPS has a fix (degrees × 1e7):
 
-The generated image is `.build/output/km0_km4_image2.bin`. The vendor uploader also uses its tool-directory copy of this image, so avoid concurrent Realtek builds/uploads. If automatic flashing cannot enter the bootloader, use the manufacturer's BOOT/RESET sequence: hold BOOT, press and release RESET, then release BOOT during the upload connection window. Do not erase the entire flash as a routine recovery step.
+```sh
+SOLDIER_ID=3 AO_ORIGIN_LAT_E7=520000000 AO_ORIGIN_LON_E7=134000000 sh tools/nu87.sh build
+```
 
-## Runtime and Status LED
+The script stages `src/` as a sketch in a temporary private directory and compiles for AMB26 with Auto Upload Mode at 921600 baud. Output image: `.build/output/km0_km4_image2.bin`. Each invocation gets an isolated vendor tool directory to prevent flashing another project's image. Do not run two builds of this same project simultaneously. A successful vendor exit code alone is insufficient; the script requires its explicit transfer-success message.
 
-The onboard RGB LED is active-high, driven through SN74LVC3G17 buffers. Status code continues to control only blue (PA14); red/green remain unused during diagnostics.
+If upload cannot enter the bootloader: hold BOOT, press and release RESET, release BOOT. Do not erase the whole flash as routine recovery.
+
+Set `CFG_TMP36=0` or `CFG_PULSE=0` when that sensor is absent. A floating ADC input cannot establish sensor presence. `CFG_IMU_DMP=1` enables MPU6050 MotionApps; raw mode is the default. NU-IMU uses raw acceleration/gyro and does not implement MPU6050 DMP.
+
+Phone GPS setup and backend payloads: [frontend handoff](../backend-handoff/README.md). Phone coordinates are separate from local PDR coordinates; phone fixes do not calibrate the node's heading.
+
+## Operation
+
+At power-on the soldier stands still, facing north, while the node collects a resting baseline. (Until GPS has calibrated the heading, dead reckoning treats the startup direction as north.) Then:
+
+1. **Baseline:** resting heart rate and skin temperature are averaged over 20 valid seconds of each, or whatever was collected after 120 s. The first check-in carries these values, so the commander uses the same baseline.
+2. **Every second:** the node evaluates the alert rules (DATA_SPEC section 3) and sends an `ALERT` if one fires; otherwise a `CHECKIN` if due (every 120 s ± 30 s).
+3. **Each packet:** sent as non-connectable advertisements every 20–30 ms for 300 ms, then the radio stops. `seq` starts at a random value at boot, so a rebooted node is not mistaken for a duplicate.
+
+**Inputs to the rules:**
+
+| Input | Source |
+|---|---|
+| Heart rate | Pulse Sensor BPM. 0 = no reading; HR rules are skipped. |
+| Skin temperature | TMP36. No reading disables the heat rule. |
+| Activity | Mean \|(\|accel\| − 1g)\| over 2 s, scaled so 1g = 255. Needs the IMU running; without it, immobility rules are skipped. |
+| Impact | Peak \|accel\| per second. An axis at the configured sensor limit counts as an impact, because the true peak cannot be measured. |
+| Gas, buttons | Not fitted. Gas is sent as 0; `HAZARD_ENV`, `SITREP_CONTACT` and `SITREP_SOS` are never sent. |
+
+**Position (`x`, `y`):** metres east and north of the origin, sent in decimetres.
+
+- **With a GPS fix:** GPS position.
+- **Without:** pedestrian dead reckoning (step detection plus stride length, port of `pdr.py`), continuing from the last GPS position.
+- **PDR heading:** optional MPU6050 DMP yaw, or raw gyro integration after 100 consecutive stationary samples. Raw mode assumes the z axis is vertical. Both are relative to startup and drift; neither establishes true north. The optional UART GPS path can learn a heading offset from movement; phone GPS cannot currently do this. Position is unavailable until heading is ready and while the IMU is offline.
+- **Origin:** the shared `AO_ORIGIN_*` point if built with one; otherwise the power-on position.
+
+## LED
 
 | Pattern | Meaning |
 |---|---|
-| Steady blue | Boot or DMP loading/stillness stabilization |
-| One blue pulse every 2 seconds | Running, waiting for BLE |
-| Two blue pulses every 2 seconds | BLE connected |
-| Three blue pulses every 2 seconds | MPU6050 offline or invalid TMP36 value |
-| Fast blue blinking | Analog task failed or readings stale |
+| Steady cyan | Booting, or DMP loading / waiting for stillness |
+| 1 blue pulse every 2 s | Collecting baseline |
+| 2 green pulses every 2 s | Reporting (baseline sent, check-ins active) |
+| 3 red pulses every 2 s | Selected IMU offline or TMP36 reading invalid |
+| Fast red blinking | Analog task failed or readings stale |
 
-Faults take priority over connection status. No GPS fix or no finger contact does not cause an LED fault. Patterns are driven by the main loop, so a stalled loop cannot continue a healthy heartbeat. The vendor BLE initializer waits for stack readiness internally; a stall there leaves the boot indication on.
+The LED is active-high through SN74LVC3G17 buffers. Faults override the reporting state. No GPS fix and no finger contact are not faults. The main loop drives the LED, so a stalled loop stops the heartbeat; a stall inside the vendor BLE initializer leaves the LED on boot cyan.
 
-Pulse sampling runs in its own FreeRTOS task at 500Hz, with a single owner of the ADC. TMP36 sampling is spread across time and averaged over 16 readings. Sampling gaps invalidate pulse history. GPS processing has a per-loop byte budget, checksum/range validation, and 3-second fix expiry. IMU transactions have a 20ms short-transfer deadline and 50ms burst deadline, 10us half-cycles (at most 50kHz), register read-back, data-ready checks, and retry after disconnect. When DMP is enabled, MPU6050 uses the MotionApps 6.12 operating configuration: +/-2g, +/-2000 degrees/s, DLPF setting 1 and divider 4. The image fixes its FIFO output cadence (nominally 100Hz); the host services FIFO every loop with a 5ms minimum interval and publishes fresh snapshots at up to 50Hz. Do not change sensor ranges/divider without a compatible DMP configuration.
+## Sensor handling
 
-## Raw IMU Mode (Current Default)
+- **Pulse:** the detector initializes its threshold from the measured DC level and requires at least 8 counts of excursion on its normalized 10-bit scale (about 26 mV) before accepting a beat. This rejects tiny ADC noise; it is not proof of finger contact or measurement accuracy. Weak real signals can also be rejected. Samples at or below 1% or at or above 95% of the ADC scale invalidate BPM immediately. After clipping, one clear second and fresh beats are required to reacquire; this is a conservative signal-quality gate, not a medical accuracy guarantee. It is sampled at 500Hz in its own FreeRTOS task, the only user of the ADC. Sampling gaps invalidate pulse history.
+- **TMP36:** 16 readings averaged, spread over time.
+- **GPS:** byte budget per loop, checksum and range validation, fix expires after 3 s.
+- **IMU:** bounded hardware I2C transfers with software fallback, register verification, data-ready checks and retry after failure. NU-IMU: 52 Hz, ±4g, ±500°/s. MPU6050: ±2g, ±2000°/s, with optional MotionApps 6.12. Sensor scales are selected with the model.
+- **ADC:** pulse sampling runs at 500 Hz when enabled; temperature-only sampling runs at 100 Hz.
 
-Raw mode reads the coherent 14-byte acceleration/temperature/gyro register block, omits the internal temperature from telemetry, and sends ax/ay/az/gx/gy/gz. No quaternion is fabricated or transmitted. The BLE IMU scale stays +/-2g and +/-2000 degrees/s, matching protocol v3. Serial prints fresh raw snapshots at 1Hz and BLE publishes up to 50Hz. Register sampling uses DLPF=3 and divider=9 (100Hz).
 
-Initialization checks one register per loop, retries each failed setting up to three times, and requires valid data-ready/read transactions. Three transfer failures or one second without fresh data takes the sensor offline. Raw mode still requires reliable I2C; successful identification alone is insufficient. Earlier builds captured only intermittent samples; the current driver includes deadline-stage diagnostics and cumulative `IMU_STATS` counters for hardware validation. `IMU_STATE,mode=raw,state=8` means raw configuration completed; fresh `IMU` lines confirm data reads. State 7 is raw configuration, 0 is offline. `IMU_STATS` reports cumulative successful raw samples, read errors and initialization starts (including initial boot). A ready state alone is not sufficient: samples must continue increasing. Status bit7 identifies raw mode; bit6 means IMU initialization in either mode. GPS is disabled.
+## DMP startup and recovery
 
-## Optional DMP Startup and Recovery
+Keep the board still during startup. The firmware resets the MPU6050, uploads the DMP image in 16-byte blocks with read-back verification, then enables it. Startup runs incrementally, so GPS, ADC, radio and the LED keep working. The FIFO is polled over I2C; no INT wire is needed.
 
-Keep the sensor stationary during startup. The host resets the MPU6050, uploads and reads back each 16-byte firmware block, then enables DMP. Startup progresses incrementally, so GPS, ADC sampling, BLE and the LED keep running. No INT wire is required: FIFO is polled over PB21/PB20.
+IMU data is withheld for at least 10 s after DMP start, and until 100 consecutive packets pass a stillness check (acceleration ≈ 1g, low gyro output, small acceleration changes). This does not prove calibration: slow constant rotation can pass, and there is no absolute heading reference. If the LED stays cyan, keep the board still and check the serial `DMP` line.
 
-The application withholds IMU/orientation telemetry for at least 10 seconds after DMP starts and until 100 consecutive valid packets pass a stillness check (acceleration close to 1g, low gyro output and small acceleration changes). The DMP image includes upstream's stationary runtime gyro calibration. This gate does not prove calibration: slow constant rotation can look stationary, and no absolute heading reference exists. If startup remains steady blue, keep the board still and inspect the serial state.
+FIFO handling: 28-byte packets read as two 14-byte bursts, at most two packets per poll; only the latest valid sample is kept and none is used twice. Overflow, a backlog over four packets, or a partial read resets the FIFO. Three consecutive transfer or decode failures, or 1 s without valid data, takes the IMU offline and restarts initialization. Reinitialization resets the yaw reference, so the PDR heading offset must be relearned from GPS.
 
-The FIFO contains 28-byte packets. Reads use two bounded 14-byte bursts (50ms maximum per transaction), consume at most two packets per poll, retain the latest valid sample and never publish it twice. Overflow or a backlog beyond four packets resets FIFO. A partial read also resets FIFO to restore alignment. Three consecutive transfer/decode failures or more than one second without valid DMP data takes the IMU offline and triggers a fresh initialization. Reinitialization also changes the yaw reference; use status bit6 to detect it.
+Serial `DMP,state=…,fifo_resets=…` states: 0 offline, 1 reset wait, 2 signal reset wait, 3 image upload, 4 start, 5 settling, 6 running. `fifo_resets` includes startup resets. State 6 with changing `QUAT` lines means valid packets, not verified angle accuracy. Yaw drift on this hardware is unmeasured.
 
-Serial `IMU_STATE,mode=DMP,state=...,fifo_resets=...` states are 0=offline, 1=reset wait, 2=signal reset wait, 3=image upload, 4=start, 5=settling, 6=running. The FIFO reset count includes initial startup resets. State 6 and changing QUAT records indicate valid DMP packets; they do not establish angle accuracy.
+Vendored DMP image version, source, checksum and license: [src/sensors/vendor/SOURCE.md](src/sensors/vendor/SOURCE.md).
 
-Quaternions are transmitted in w/x/y/z order. The PC normalizes them and displays ZYX roll/pitch/yaw in degrees. Euler angles have a singularity near +/-90-degree pitch; use quaternions for rendering. Board-to-head mounting rotation must be applied separately. Roll/pitch are gravity-referenced, and yaw is startup-relative with possible drift. Calibration, dynamic accuracy and drift on this hardware remain to be measured.
+## Serial output
 
-The vendored firmware version, source commit, checksum and license are recorded in [vendor provenance](src/sensors/vendor/SOURCE.md).
-
-## Serial Debugging
-
-Open the onboard USB-UART at **9600 baud, 8N1**. Every enabled data type, including `QUAT` orientation, is printed at **1Hz**; IMU lines require fresh data; QUAT lines are sent only when DMP mode is enabled and stabilized. Raw pulse values are snapshots, not the entire internal 500Hz signal. A bounded logging queue isolates slow UART writes from acquisition. On saturation, debug lines are dropped. Vendor boot/stack messages may appear separately; ROM startup can use a different baud rate.
+Onboard USB-UART, **9600 baud, 8N1**. A bounded queue keeps slow UART writes from blocking sampling; lines are dropped when it is full. Vendor boot and BLE stack messages (e.g. `GAP adv start`) also appear.
 
 ```text
 IMU,t_ms=15000,ax=0,ay=0,az=16384,gx=0,gy=0,gz=0
-VITALS,t_ms=15000,temp_c_x100=2500,bpm=60,pulse_raw=1800
-STATUS,t_ms=15000,version=3,flags=0x0F,tx_dropped=0,sample_gaps=0
 QUAT,t_ms=15000,w_q30=1073741824,x_q30=0,y_q30=0,z_q30=0
+VITALS,t_ms=15000,temp_c_x100=2500,bpm=60,pulse_raw=1800
+GPS,t_ms=15000,lat_e7=0,lon_e7=0,alt_cm=0,speed_cms=0,fix=0,sats=0
+NODE,t_s=15,activity=2,x_dm=0,y_dm=0,pos=pdr,steps=0,baseline=0,sample_gaps=0
+TX,t_s=21,type=2,code=0x00,seq=40213,hr=64,temp_c_x100=3350,x_dm=0,y_dm=0
 ```
 
-9600 baud supports about 960 payload bytes/second with 8N1 framing. Printing readable IMU lines at 50Hz would exceed that limit. BLE retains its higher update rates independently.
+`IMU`, `QUAT`, `VITALS` and `GPS` print once per second (`IMU` only when valid; `QUAT` only with a settled DMP). Each second prints either `NODE` (state, nothing sent) or `TX` (packet queued for sending; `type` 1 = alert, 2 = check-in). `activity=-1` means no valid IMU data.
 
-## BLE Transport
-
-The active transport is Nordic UART Service (NUS), matching the supplied NU40 connection example. MPU6050 advertises `NU87-1`; NU-IMU advertises `NU87-2`. Sensor JSON lines are fragmented into at most 20-byte notifications, with CCCD gating, bounded queues and disconnect cleanup. Read the [wire contract and receiver integration notes](docs/nus-telemetry.md) before changing the receiver. The former custom binary service is no longer advertised.
-
-```sh
-python tools/ble_receiver.py --name NU87-1 --jsonl readings.jsonl
-```
-
-## Tests and Validation
+## Tests
 
 ```sh
 sh tools/test.sh
 ```
 
-Native C++ tests use AddressSanitizer/UndefinedBehaviorSanitizer and cover timing, MPU6050 byte order, I2C failures, TMP36 conversion, pulse timing, and NMEA parsing. Python tests cover protocol scales/UUIDs, quaternion decoding, and receiver disconnect/error handling. The DMP simulator additionally covers verified banked image loading, motion gating, partial FIFO packets, overflow/backlog reset, mid-packet bus failure, corruption, stale data, retries, and clock wraparound. They do not establish sensor accuracy, current draw, RF reliability, or physical wiring. See [the validation record](docs/power-validation.md) for hardware evidence and remaining checks.
+- **Native C++ (ASan/UBSan):** timing, MPU6050 byte order, I2C failures, TMP36 conversion, pulse timing, NMEA parsing.
+- **DMP simulator:** verified image loading, motion gating, partial FIFO packets, overflow and backlog reset, mid-packet bus failure, corruption, stale data, retries, clock wraparound.
+- **Node logic:** packet encoding, advertisement layout, activity, heading, PDR, GPS/PDR fusion and heading calibration, baseline, check-in timing, rule handling of missing readings.
+- **Parity with `commander-hq/backend`:** the same inputs through the C++ code and the Python reference must give identical packets (500 random) and alert decisions (20 × 1500 s scenarios), and matching PDR tracks.
 
-The unused `variants/nu40dk_nrf52840` directory is retained as historical source with its license; it is not compiled for NU-87.
+`main.cpp` and `comm/advertiser.cpp` use the Realtek API and are only compiled by the Arduino build. Tests do not establish sensor accuracy, radio range, current draw or wiring. Hardware evidence and remaining checks: [docs/power-validation.md](docs/power-validation.md).
+
+## Not yet done
+
+- NU-IMU acquisition and PC BLE reception passed a bench run; see [integration validation](../docs/sensor-integration-validation.md). Physical commander reception, radio burst duration, and on-air packet counts still need measurement.
+- Lowest-power transmission: the Arduino BLE API has no TX power setting.
+- Relaying other nodes' packets (`hops` is always 0).
+- Report buttons and a gas sensor.
+- Calibrate the Weinberg stride constant (`Pdr::WEINBERG_K`) per soldier; tune alert thresholds with measured data.
 
 ## Sources
 
-- [NUCODE start guide and schematic downloads](https://nucode.gitbook.io/nuseries/downloads/nu-87-tinydk)
-- [Official Realtek Arduino core](https://github.com/Ameba-AIoT/ameba-arduino-d), including AMB26 variant, calibrated ADC implementation, BLE API, and uploader
-- [Adafruit MPU6050 driver reference](https://github.com/adafruit/Adafruit_MPU6050)
-- [TMP36 manufacturer datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/TMP35_36_37.pdf)
+- [NUCODE NU-87 start guide and schematic](https://nucode.gitbook.io/nuseries/downloads/nu-87-tinydk)
+- [Realtek AmebaD Arduino core](https://github.com/Ameba-AIoT/ameba-arduino-d): AMB26 variant, calibrated ADC, BLE API, uploader
+- [Adafruit MPU6050 driver](https://github.com/adafruit/Adafruit_MPU6050)
+- [TMP36 datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/TMP35_36_37.pdf)
+
+## Optional pulse diagnostics
+
+`CFG_PULSE_TRACE=1` records 1024 raw ADC samples at the configured pulse cadence, starting five seconds after boot, then prints `PTRACE` hex blocks at 9600 baud. `PTRACE_TIME` reports the first and last sample times. Acquisition finishes before printing begins. This option is off by default and uses a fixed buffer. Check block indices for missing log lines before analyzing a recording.
+
+Bench capture on 2026-10-11 showed repeated flat upper plateaus around raw 3930 and troughs down to 19. These clipped waveforms cannot substantiate the displayed 200+ BPM. The quality gate prevents reporting them as a usable heart rate; proper skin contact, pressure, light shielding and reference-rate comparison remain necessary.
+
+## Project defaults
+
+This folder now sends the 18-byte BLE advertisement expected by the NU40 commander and `Tristan_Cha/tactical-c2`. It no longer sends NUS JSON.
+
+Default profile: `SOLDIER_ID=1 IMU_MODEL=mpu6050 CFG_PULSE=1 CFG_GPS=0`. TMP36 is enabled. Override `CFG_PULSE=1` if a pulse sensor is fitted to the NU-IMU board.
+
+Run `sh tools/nu87.sh upload /dev/ttyUSB0`. Run tests with `BACKEND_ROOT=/path/to/tactical-c2/backend sh tools/test.sh`.

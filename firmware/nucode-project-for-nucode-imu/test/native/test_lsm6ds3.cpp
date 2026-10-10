@@ -65,6 +65,16 @@ int main() {
   reset(); badReadback=true; Imu mismatch; assert(mismatch.begin());
   for(int i=0;i<20;++i) advance(mismatch,10);
   assert(!mismatch.active());
+  // Losing configuration or the bus during settling must not publish readiness.
+  for (bool busFailure : {false, true}) {
+    reset(); Imu settling; assert(settling.begin()); advance(settling,10);
+    for (int i=0;i<8;++i) advance(settling,5);
+    if (busFailure) ioError=true; else regs[0x11]=0;
+    advance(settling,150); assert(!settling.ok());
+    advance(settling,5); advance(settling,5);
+    assert(!settling.active() && settling.readErrors()==3);
+    ioError=false; ready(settling); assert(settling.restarts()==2);
+  }
   reset(); now=UINT32_MAX-100; Imu wrap; ready(wrap);
   advance(wrap,100); assert(wrap.ok()); advance(wrap,1001); assert(!wrap.active());
   puts("LSM6DS3 driver tests passed");

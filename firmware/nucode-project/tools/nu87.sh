@@ -1,5 +1,9 @@
 #!/bin/sh
 set -eu
+export SOLDIER_ID=${SOLDIER_ID:-1}
+export IMU_MODEL=${IMU_MODEL:-mpu6050}
+export CFG_PULSE=${CFG_PULSE:-1}
+export CFG_GPS=${CFG_GPS:-0}
 cd "$(dirname "$0")/.."
 root=$(pwd)
 cli=${ARDUINO_CLI:-}
@@ -16,6 +20,27 @@ case "${1:-build}" in
     exec "$cli" core install realtek:AmebaD@3.1.9 --additional-urls "$index"
     ;;
   build|upload)
+    case "${SOLDIER_ID:-}" in
+      ''|*[!0-9]*) echo 'Set SOLDIER_ID to an integer 1..255.' >&2; exit 2 ;;
+    esac
+    if [ "$SOLDIER_ID" -lt 1 ] || [ "$SOLDIER_ID" -gt 255 ]; then exit 2; fi
+    case "${IMU_MODEL:-mpu6050}" in
+      mpu6050) model=1 ;;
+      lsm6ds3) model=2 ;;
+      *) echo 'IMU_MODEL must be mpu6050 or lsm6ds3.' >&2; exit 2 ;;
+    esac
+    defines="-DSOLDIER_ID=$SOLDIER_ID -DCFG_IMU_MODEL=$model"
+    for option in CFG_IMU_DMP CFG_TMP36 CFG_PULSE CFG_GPS CFG_PULSE_TRACE; do
+      value=$(printenv "$option" || true)
+      case "$value" in
+        '') ;;
+        0|1) defines="$defines -D$option=$value" ;;
+        *) echo "$option must be 0 or 1." >&2; exit 2 ;;
+      esac
+    done
+    if [ -n "${AO_ORIGIN_LAT_E7:-}${AO_ORIGIN_LON_E7:-}" ]; then
+      defines="$defines -DAO_ORIGIN_LAT_E7=${AO_ORIGIN_LAT_E7:-} -DAO_ORIGIN_LON_E7=${AO_ORIGIN_LON_E7:-}"
+    fi
     # Vendor recipes do not reliably quote paths containing spaces.
     # Stage in a private space-free directory; keep final artifacts in the project.
     build_root=$(mktemp -d /tmp/nu87-build.XXXXXX)
@@ -31,7 +56,7 @@ case "${1:-build}" in
     mkdir "$build_root/vendor-tools"
     cp -R "$vendor_tools/." "$build_root/vendor-tools/"
     "$cli" compile --fqbn "$fqbn" --build-property "runtime.tools.ameba_d_tools.path=$build_root/vendor-tools" --build-path "$build_root/output" \
-      --build-property "compiler.c.extra_flags=-I$build_root/output/sketch/src" "$build_root/nu87_hud"
+      --build-property "compiler.c.extra_flags=-I$build_root/output/sketch/src $defines" "$build_root/nu87_hud"
     cp "$build_root/output/km0_km4_image2.bin" "$root/.build/output/"
     if [ "${1:-build}" = upload ]; then
       if [ -z "${2:-}" ]; then echo 'Usage: tools/nu87.sh upload /dev/ttyUSB0' >&2; exit 2; fi

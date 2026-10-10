@@ -5,6 +5,7 @@
 #include "core/fractional_ticks.h"
 #include "pulse_sensor.h"
 #include "tmp36.h"
+#include "pulse_trace.h"
 #include <FreeRTOS.h>
 #include <task.h>
 #include <queue.h>
@@ -18,7 +19,7 @@ void acquire(void*) {
   analogReadResolution(ADC_BITS);
   analogReference(AR_DEFAULT);
   if (CFG_PULSE) pulse.begin();
-  temperature.begin();
+  if (CFG_TMP36) temperature.begin();
   constexpr uint32_t periodUs = CFG_PULSE ? PULSE_PERIOD_US : 10000;
   static_assert(uint64_t(periodUs) * configTICK_RATE_HZ >= 1000000,
                 "Sampling period must be at least one RTOS tick");
@@ -35,8 +36,8 @@ void acquire(void*) {
     const uint32_t now = micros();
     if ((uint32_t)(now - previous) > periodUs * 2) ++gaps;
     previous = now;
-    if (CFG_PULSE) pulse.sample();
-    if (temperatureTick.due(micros())) temperature.sample();
+    if (CFG_PULSE) { pulse.sample(); PulseTrace::sample(pulse.raw(), millis()); }
+    if (CFG_TMP36 && temperatureTick.due(micros())) temperature.sample();
     Reading reading{{millis(), temperature.readCelsiusX100(), uint16_t(CFG_PULSE ? pulse.bpm() : 0), uint16_t(CFG_PULSE ? pulse.raw() : 0)}, gaps};
     xQueueOverwrite(readings, &reading);
   }

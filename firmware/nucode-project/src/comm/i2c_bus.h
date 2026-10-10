@@ -2,7 +2,8 @@
 #include <Arduino.h>
 #include "config.h"
 
-// Single-master, open-drain software I2C. A whole transaction has a deadline:
+// Single-master I2C: hardware on PB21/PB20, software fallback elsewhere.
+// A whole transaction has a deadline:
 // no transaction may stall sensor processing indefinitely.
 class I2cBus {
 public:
@@ -21,6 +22,8 @@ public:
   bool write(uint8_t address, uint8_t reg, uint8_t value);
   bool writeBlock(uint8_t address, uint8_t reg, const uint8_t* data, uint8_t count);
 private:
+  bool hardware_ = false;
+  bool hardwareTransfer(uint8_t address, uint8_t reg, uint8_t* data, uint8_t count, bool read, bool probe);
   uint8_t sda_ = PIN_WIRE_SDA, scl_ = PIN_WIRE_SCL;
   // Use RTOS milliseconds; vendor micros() assumes a fixed CPU/SysTick clock.
   uint32_t started_ = 0;

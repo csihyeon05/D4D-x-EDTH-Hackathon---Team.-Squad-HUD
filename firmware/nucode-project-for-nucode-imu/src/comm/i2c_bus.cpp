@@ -5,7 +5,7 @@
 namespace {
 void low(uint8_t pin) { digitalWrite(pin, LOW); pinMode(pin, OUTPUT); }
 void release(uint8_t pin) { pinMode(pin, INPUT_PULLUP); }
-void halfCycle() { delayMicroseconds(25); }
+void halfCycle() { delayMicroseconds(CFG_IMU_MODEL == 1 ? 10 : 25); }
 }
 bool I2cBus::clockHigh() {
   release(scl_);
@@ -33,7 +33,7 @@ void I2cBus::begin() {
     if (!clockHigh()) break;
   }
   stop();
-  hardware_ = HardwareI2c::begin(sda_, scl_);
+  if (CFG_IMU_MODEL == 2) hardware_ = HardwareI2c::begin(sda_, scl_);
   LOG("[i2c] SDA=%u SCL=%u hardware=%u\n", sda_, scl_, hardware_);
 }
 bool I2cBus::start() {

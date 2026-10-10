@@ -1,56 +1,45 @@
-# NU-IMU Validation Record
+# NU-87 Power and Stability Validation Record
 
-## Scope
+The records below predate the switch from BLE streaming (protocol v3) to event-only advertising. Radio findings refer to the streaming firmware.
 
-This copy targets NU-87 Tiny DK. Earlier runs used only NU-IMU with analog sensors and GPS disabled. On 2026-10-10 the user also confirmed TMP36 wiring; current configuration enables TMP36 and keeps pulse/GPS disabled. Previous MPU6050 observations do not validate this replacement sensor.
+Target: NUCODE NU-87 Tiny DK (RTL8720DF), Realtek AmebaD 3.1.9 core, board AMB26. MPU6050 with MotionApps DMP 6.12 at up to 50Hz over BLE; TMP36 and Pulse Sensor on calibrated 3.3V ADC; GPS NMEA at 9600 baud on Serial1. Earlier NU40 upload records and LSM6DS power settings do not apply to this board.
 
-## Software Evidence
+## Confirmed
 
-- Native AddressSanitizer/UndefinedBehaviorSanitizer tests passed, including the new LSM6DS3 state-machine and byte-order tests.
-- All eight Python protocol/receiver tests passed.
-- The official Realtek AmebaD 3.1.9 / AMB26 build completed: 852732 bytes, 40% of the program limit.
-- The initial upload could not open the port because a serial monitor held it. The vendor uploader returned exit code zero despite that failure. The script now checks its explicit success message.
+- **Board facts:** NUCODE's start guide specifies AMB26 and Auto Upload Mode. The schematic confirms active-high RGB LEDs on PA13/PA12/PA14 and the sensor header pins in the README.
+- **Build:** an AMB26 build with the official core used 865,020 of 2,097,152 bytes (41%).
+- **Upload:** the DMP firmware flashed via the CP2102N port `/dev/ttyUSB0` (`All images are sent successfully!`).
+- **Pre-DMP run:** 8 s of serial at 9600 baud captured 1720 bytes of telemetry: protocol v2, flags 0x22, `sample_gaps=0`. MPU6050 not detected, TMP36 invalid, pulse raw and BPM zero, no GPS fix. This shows the firmware runs and logs; it does not verify any sensor or the LED.
+- **Tests:** native C++ ASan/UBSan tests passed (MPU6050 byte order and sign, I2C failures, ADC conversion, pulse timing, NMEA parsing, scheduling). Eight Python protocol and receiver tests passed.
+- **Scheduling:** the ADC task runs at 500Hz on the core's 1000Hz RTOS tick. The main loop yields. Slow 9600-baud logging runs in a bounded, lower-priority queue, at most one record per type per second.
+- **BLE init:** the vendor core blocks until the BLE stack is ready, with no application timeout. The LED stays boot cyan during this time.
+- **BLE delivery:** the Realtek notify call returns no transmission status, so the status counter records only local failures, not radio packet loss.
 
-## Hardware Evidence
+## DMP update
 
-- Two uploads completed with `All images are sent successfully!`; the monitor confirmed protocol v4 at 9600 baud.
-- First capture repeatedly identified WHO_AM_I=0x6A at address 0x6A with SDA=PB21 / SCL=PB20. Configuration read-back passed, but no fresh measurement was captured. Read errors and one-second stale-data recovery were observed; identification alone is not successful acquisition.
-- The subsequent diagnostic build selected that mapping first. Its capture showed no address ACK in either mapping and zero samples. Physical power-cycle verification is pending.
-- A third upload lowered the software I2C clock ceiling to 20kHz, selected high-performance sensor mode, and added line/error diagnostics. Upload and all native/Python tests passed. A 20-second capture still showed address NACK (`err=2`) at both 0x6A/0x6B in both mappings, with SDA/SCL high (`lines=11`). No clock-stuck timeout was observed. Thus a bus held low is not the observed failure; sensor supply, connection, interface selection and electrical waveforms remain unverified.
-- The user reported no wiring changes. No full sensor power cycle has been confirmed.
-- No successful NU-IMU acquisition, BLE delivery, angle accuracy, drift, or supply-current claim is established yet.
+- **Post-DMP run:** 12 s of serial at 9600 baud showed protocol v3 telemetry, `sample_gaps=0` and `DMP,state=0,fifo_resets=0`. Repeated `MPU6050 not found` messages mean sensor communication and DMP operation are still unverified. TMP36 invalid, pulse raw and BPM zero, no GPS fix.
+- **Image:** MotionApps 6.12 is pinned and vendored with its upstream license. Every uploaded chunk is verified by read-back before start.
+- **Simulated tests:** DMP initialization, startup motion gating, partial FIFO packets and backlog, mid-packet I2C failure, invalid quaternion recovery, stale data, reinitialization and timer wraparound. Simulation does not prove the physical sensor accepts the image.
+- **Protocol v3:** adds Q30 quaternions and changes raw ranges to ±2g and ±2000°/s. The PC decoder checks quaternion norms and derives ZYX Euler angles.
+- **Startup:** takes at least 10 s plus a stillness window. The image's stationary calibration does not provide an absolute yaw reference.
+- **Unmeasured:** actual DMP startup, FIFO cadence, angle accuracy and drift. These need a connected MPU6050; test success is not a drift measurement.
 
-## Remaining Checks
+## Power
 
-Measure acceleration magnitude and gyro bias with the sensor stationary, then verify axis signs under controlled movement. Check long-duration reset/disconnect behavior and BLE delivery with a PC receiver. Measure supply current before making power claims. Test other sensors only after wiring and enabling them.
+No current has been measured, so no power figure can be claimed. Do not reuse NU40 estimates.
 
-## Independent Hardware I2C Diagnostic
+- Wi-Fi is never started. Current is drawn by ADC sampling, the gyro, UART GPS, BLE advertising, the USB-UART chip, regulators and the always-on power LED.
+- The MPU6050 gyro stays on for 6-axis data; accelerometer-only low-power cycling would lose gyro data.
+- The status LED uses short pulses.
+- `CFG_DEBUG=0` compiles out debug logging. Closing the PC serial monitor does not stop UART output.
 
-- The installed SDK includes USI I2C support for SDA=PB21 / SCL=PB20, although the Arduino Wire wrapper rejects that mapping. A separate diagnostic now checks those pins at 100kHz after initial software discovery fails and every fifteenth retry. It restores GPIO pinmux afterward.
-- The SDK timeout-write entry point could not be linked because its precompiled object references a missing `usi_i2c_reset`. The diagnostic instead uses peripheral commands with explicit 20ms polling deadlines. This is diagnostic code, not a validated replacement acquisition driver.
-- Build and upload completed: 856828 bytes (40%), with the uploader's explicit success message.
-- A live diagnostic returned `probe=-1, read=0, id=00, flags=03A00001` for both 0x6A and 0x6B. The hardware TX-abort flag was set. Software probing simultaneously reported address NACK in both directions, with both lines high. The abort-source register was not recorded, so its precise hardware abort cause is not claimed.
-- Measurements remain unavailable. A physical pin-by-pin wiring description and full sensor power cycle have been requested. This result does not establish a defective sensor or a verified power fault.
-- Waiting-for-data diagnostics no longer read measurement registers, avoiding accidental consumption of a partially ready sample.
+## Hardware checks still required
 
-## Confirmed Hardware Identity and Acquisition Migration
+1. **IMU:** at rest, acceleration magnitude ≈ 1g and gyro ≈ 0. Move each axis to check signs and orientation.
+2. **Analog sensors:** compare TMP36 with a reference thermometer. Check Pulse Sensor waveform and BPM during motion and poor contact; a plausible value does not prove a sensor is attached.
+3. **GPS:** confirm module model, supply and logic voltage, baud rate and an outdoor fix. Test loss of fix and stale-data handling.
+4. **Radio:** with `commander-firmware`, count bursts sent (`TX` lines) against packets forwarded and `duplicates` (`GW` lines) at increasing range. Confirm the 20 ms advertising interval is accepted.
+5. **Endurance:** run all sensors for an extended period. Check stack headroom and `sample_gaps`, and unplug/replug I2C with pull-ups fitted.
+6. **Current:** measure average and peak supply current for ≥ 60 s under fixed conditions, idle and during bursts, with debug on and off. Make sure no supply path bypasses the meter.
 
-- The user explicitly confirmed the sensor is connected to PB20/PB21. No other GPIO pairs are being selected.
-- A full hardware scan of 112 non-reserved addresses found exactly one responder, 0x6A. The initial combined-read diagnostic failed because it did not enable RESTART and attached its marker to the wrong command.
-- With RESTART enabled and attached to the register-pointer byte, the live diagnostic reported `addr=6A probe=0 read=1 id=6A flags=03C00011 abort=00000000`. At 0x6B it reported `abort=00000001`, the SDK-defined 7-bit address NACK. The sensor identity is therefore confirmed on SDA=PB21/SCL=PB20 without a confirmed power cycle. Earlier claims that a power cycle was necessarily required were premature.
-- The acquisition driver now uses that hardware transaction sequence at 100kHz, with bounded FIFO/receive/STOP waits and GPIO fallback. Its build and upload completed successfully (856828 bytes).
-- All native sanitizer suites and eight Python tests passed. A new hardware-register simulation checks multi-byte reads, write framing, RESTART placement, address NACK, missing receive data, missing STOP, FIFO stalls, and clock wraparound. Simulation does not establish physical measurement accuracy.
-- Before the acquisition firmware could be monitored, the host kernel reported CP2102N disconnection at 23:11:58 on 2026-10-10. The board was absent from the USB serial-port list. Raw acquisition and sustained stability on the new hardware path remain unverified pending USB reconnection.
-
-## Common Ground Connected: First Successful Acquisition
-
-- The user reported the missing sensor ground and then connected it. The next upload succeeded and the sensor retained CTRL1_XL/CTRL2_G/CTRL3_C = 38/34/44 after settling.
-- The capture reached 8,322 samples at approximately 160 seconds, with `read_errors=0` and `starts=1`. It contains 160 raw six-axis snapshots at the slower serial reporting rate. This establishes actual measurement acquisition, beyond identification alone.
-- The planned 180-second capture was interrupted at about 160 seconds by the temperature firmware upload starting too soon. The uploader and monitor overlapped, causing that upload to fail. The monitor was closed before retrying. This was an operator/tool sequencing error, not evidence of a spontaneous sensor reset.
-- TMP36 was enabled on PB1/A4 after the user confirmed VCC=3.3V, VOUT=PB1, and common ground. Pulse sampling is separately disabled so an unconnected input cannot generate misleading BPM.
-- Native firmware, LSM6DS3, hardware I2C simulation, and all eight Python tests passed. The temperature-enabled build uses 860924 bytes.
-- Vendor tools are now isolated per build/upload; the vendor upload recipe otherwise selects its tool-directory image instead of honoring the input-file argument.
-
-## IMU and TMP36 Concurrent Validation
-
-The temperature-enabled upload succeeded. A 180-second serial capture completed: at 179 seconds there were 9,313 IMU samples, zero read errors, starts=1, and zero analog sampling gaps. TMP36 produced 178 valid reports: 22.20 C initially, 34.67 C peak after the user held the sensor, and 22.87 C finally. This validates acquisition and thermal response, not calibrated absolute accuracy. The startup -32768 sentinel precedes the first average. BLE delivery was not tested in this run. See [the full capture](validation/2026-10-10-imu-tmp36.log).
+Sources: [NUCODE schematic and start guide](https://nucode.gitbook.io/nuseries/downloads/nu-87-tinydk), [Realtek Arduino core](https://github.com/Ameba-AIoT/ameba-arduino-d).

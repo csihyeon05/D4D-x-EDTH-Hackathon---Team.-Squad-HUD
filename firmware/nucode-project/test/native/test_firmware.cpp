@@ -199,11 +199,13 @@ int main() {
   const auto sdaModes = pinChanges[PIN_WIRE_SDA], sclModes = pinChanges[PIN_WIRE_SCL];
   const auto sdaWrites = pinWrites[PIN_WIRE_SDA], sclWrites = pinWrites[PIN_WIRE_SCL];
   StatusLed led; led.begin();
-  for (auto state : {StatusLed::State::Boot, StatusLed::State::Ready,
-                    StatusLed::State::Connected, StatusLed::State::SensorFault, StatusLed::State::Fatal})
+  for (auto state : {StatusLed::State::Boot, StatusLed::State::Reporting,
+                    StatusLed::State::Baseline, StatusLed::State::SensorFault, StatusLed::State::Fatal})
     for (unsigned t=0; t<2100; t+=10) led.update(state,t);
   assert(pinChanges[PIN_WIRE_SDA]==sdaModes && pinChanges[PIN_WIRE_SCL]==sclModes);
   assert(pinWrites[PIN_WIRE_SDA]==sdaWrites && pinWrites[PIN_WIRE_SCL]==sclWrites);
   assert(pinWrites[STATUS_LED_BLUE]>0);
   puts("native firmware tests passed");
 }
+
+void logMessage(const char*, ...) {}
