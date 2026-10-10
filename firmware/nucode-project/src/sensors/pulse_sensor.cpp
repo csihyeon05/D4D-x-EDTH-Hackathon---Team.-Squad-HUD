@@ -8,8 +8,40 @@ void PulseSensor::begin() {
 void PulseSensor::resetDetection(uint32_t now, int signal) {
   filtered_ = signal;
   thresh_ = peak_ = trough_ = signal;
-  amp_ = 0; first_ = true; second_ = false; pulse_ = false;
-  bpm_ = 0; ibi_ = 600; lastBeat_ = now;
+  amp_ = 0; first_ = true; pulse_ = false;
+  bpm_ = 0; ibi_ = confirmedIbi_ = 600; lastBeat_ = now; intervalCount_ = 0;
+}
+
+void PulseSensor::acceptInterval(uint16_t interval, uint32_t now) {
+  // Reacquire after inconsistent timing instead of averaging artifacts into BPM.
+  if (intervalCount_) {
+    uint16_t ordered[5];
+    for (uint8_t i = 0; i < intervalCount_; ++i) ordered[i] = rate_[i];
+    for (uint8_t i = 1; i < intervalCount_; ++i) {
+      for (uint8_t j = i; j && ordered[j] < ordered[j - 1]; --j) {
+        const auto value = ordered[j]; ordered[j] = ordered[j - 1]; ordered[j - 1] = value;
+      }
+    }
+    const uint16_t reference = ordered[intervalCount_ / 2];
+    if (uint32_t(interval) * 4 < uint32_t(reference) * 3 ||
+        uint32_t(interval) * 4 > uint32_t(reference) * 5) intervalCount_ = 0;
+  }
+  if (intervalCount_ == 5) {
+    for (uint8_t i = 0; i < 4; ++i) rate_[i] = rate_[i + 1];
+    intervalCount_ = 4;
+  }
+  rate_[intervalCount_++] = interval;
+  if (intervalCount_ < 3) return;
+  uint16_t ordered[5];
+  for (uint8_t i = 0; i < intervalCount_; ++i) ordered[i] = rate_[i];
+  for (uint8_t i = 1; i < intervalCount_; ++i) {
+    for (uint8_t j = i; j && ordered[j] < ordered[j - 1]; --j) {
+      const auto value = ordered[j]; ordered[j] = ordered[j - 1]; ordered[j - 1] = value;
+    }
+  }
+  confirmedIbi_ = ordered[intervalCount_ / 2];
+  bpm_ = 60000UL / confirmedIbi_;
+  lastConfirmedMs_ = now;
 }
 
 void PulseSensor::sample() {
@@ -27,6 +59,7 @@ void PulseSensor::sample() {
   sampled_ = true;
   previousMs_ = now;
   sampleCounter_ = now;
+  if (bpm_ && uint32_t(now - lastConfirmedMs_) > 2500) bpm_ = 0;
   // Clipped optical waveforms cannot establish valid inter-beat intervals.
   // Require one second clear of either rail before reacquiring beats.
   if (raw_ <= ADC_SCALE / 100 || raw_ >= ADC_SCALE * 95 / 100) {
@@ -43,34 +76,23 @@ void PulseSensor::sample() {
   filtered_ = sig;
   const int32_t n = (int32_t)(sampleCounter_ - lastBeat_);
 
-  if (sig < thresh_ && n > (ibi_ / 5) * 3 && sig < trough_) trough_ = sig;
+  // One missed beat must not double the refractory period and hide every other beat.
+  const uint16_t cadence = ibi_ < confirmedIbi_ ? ibi_ : confirmedIbi_;
+  if (sig < thresh_ && n > (cadence / 5) * 3 && sig < trough_) trough_ = sig;
   if (sig > thresh_ && sig > peak_) peak_ = sig;
 
   if (n > 250) {
-    if (sig > thresh_ && !pulse_ && n > (ibi_ / 5) * 3
+    if (sig > thresh_ && !pulse_ && n > (cadence / 5) * 3
         && peak_ - trough_ >= MIN_FILTERED_SWING) {
       pulse_ = true;
       ibi_ = (uint16_t)(sampleCounter_ - lastBeat_);
       lastBeat_ = sampleCounter_;
 
-      if (second_) {
-        second_ = false;
-        for (auto& r : rate_) r = ibi_;
-      }
       if (first_) {
         first_ = false;
-        second_ = true;
         return;
       }
-
-      uint32_t total = 0;
-      for (int i = 0; i < 9; i++) {
-        rate_[i] = rate_[i + 1];
-        total += rate_[i];
-      }
-      rate_[9] = ibi_;
-      total += ibi_;
-      bpm_ = (uint16_t)(60000UL * 10 / total);
+      acceptInterval(ibi_, now);
     }
   }
 

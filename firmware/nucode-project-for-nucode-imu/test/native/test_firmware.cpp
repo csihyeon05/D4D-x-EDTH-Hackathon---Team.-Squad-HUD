@@ -153,6 +153,24 @@ int main() {
   // A removed finger must still expire; no indefinite last-value hold.
   for (unsigned i = 0; i < 1600; ++i) { nowMs += 2; adc = 2048; weak.sample(); }
   assert(weak.bpm() == 0);
+  // A missing beat must not pollute the reported rate with a doubled interval.
+  PulseSensor missingBeat(3);
+  for (nowMs = 0; nowMs < 25000; nowMs += 2) {
+    const bool missing = nowMs >= 10000 && nowMs < 11000;
+    adc = 2048 + ((!missing && nowMs % 1000 >= 500 && nowMs % 1000 < 550) ? 400 : 0);
+    missingBeat.sample();
+    if (nowMs > 5000) assert(missingBeat.bpm() == 0 ||
+        (missingBeat.bpm() >= 59 && missingBeat.bpm() <= 61));
+  }
+  assert(missingBeat.bpm() >= 59 && missingBeat.bpm() <= 61);
+  // Alternating artifact intervals must not establish a stable heart rate.
+  PulseSensor irregular(3);
+  for (nowMs = 0; nowMs < 20000; nowMs += 2) {
+    const auto phase = nowMs % 1800;
+    adc = 2048 + ((phase < 50 || (phase >= 600 && phase < 650)) ? 400 : 0);
+    irregular.sample();
+    assert(irregular.bpm() == 0);
+  }
   // Mains-frequency interference alone must not look like fast heartbeats.
   for (int hz : {50, 60, 100, 120}) {
     PulseSensor interference(3), contaminated(3);
