@@ -44,7 +44,7 @@ static_assert(sizeof(GpsPacket) == 20, "GpsPacket size");
 
 // Status v3, 16 bytes. Flags: bit0 IMU online, bit1 analog task ready,
 // bit2 temperature valid, bit3 BPM available, bit4 GPS fix, bit5 GPS enabled,
-// bit6 DMP initializing/settling.
+// bit6 IMU initializing/settling, bit7 raw mode (no orientation notifications).
 struct __attribute__((packed)) StatusPacket {
   uint32_t t_ms;
   uint16_t version;

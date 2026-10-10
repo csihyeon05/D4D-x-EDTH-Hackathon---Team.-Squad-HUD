@@ -3,8 +3,6 @@
 #include "config.h"
 
 void StatusLed::begin() {
-  pinMode(STATUS_LED_RED, OUTPUT);
-  pinMode(STATUS_LED_GREEN, OUTPUT);
   pinMode(STATUS_LED_BLUE, OUTPUT);
   on_ = false;
   state_ = State::Boot;
@@ -12,12 +10,8 @@ void StatusLed::begin() {
   set(true);
 }
 void StatusLed::set(bool on) {
-  const bool fault = state_ == State::Fatal || state_ == State::SensorFault;
-  const bool green = state_ == State::Connected || state_ == State::Boot;
-  const bool blue = state_ == State::Ready || state_ == State::Boot;
-  digitalWrite(STATUS_LED_RED, on && fault);
-  digitalWrite(STATUS_LED_GREEN, on && green);
-  digitalWrite(STATUS_LED_BLUE, on && blue);
+  // Keep the blue-only status patterns used during sensor diagnostics.
+  digitalWrite(STATUS_LED_BLUE, on);
   on_ = on;
 }
 void StatusLed::update(State state, uint32_t nowMs) {

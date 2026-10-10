@@ -8,13 +8,20 @@
 constexpr uint8_t PIN_TMP36 = A4;
 constexpr uint8_t PIN_PULSE = A5;
 // GPS UART (Serial1): GPS TX -> board RX, GPS RX -> board TX; pins follow the board variant.
-// MPU6050: SDA=PB21, SCL=PB20; TMP36=PB1, Pulse=PB2.
-constexpr uint8_t PIN_WIRE_SDA = 18;
-constexpr uint8_t PIN_WIRE_SCL = 19;
+// MPU6050: SDA=PB20, SCL=PB21 (both directions probed); TMP36=PB1, Pulse=PB2.
+constexpr uint8_t PIN_WIRE_SDA = 19;
+constexpr uint8_t PIN_WIRE_SCL = 18;
+constexpr char IMU_SDA_LABEL[] = "PB20";
+constexpr char IMU_SCL_LABEL[] = "PB21";
 // NU87-TinyDK schematic: active-high RGB through SN74LVC3G17 buffers.
 constexpr uint8_t STATUS_LED_RED = 2;   // PA13
 constexpr uint8_t STATUS_LED_GREEN = 3; // PA12
 constexpr uint8_t STATUS_LED_BLUE = 1;  // PA14
+
+// Raw register mode is the default while DMP communication is being diagnosed.
+#ifndef CFG_IMU_DMP
+#define CFG_IMU_DMP 0
+#endif
 
 // ---- GPS ----
 constexpr uint32_t GPS_BAUD = 9600;  // Actual module baud rate must match.
@@ -37,9 +44,9 @@ constexpr uint32_t GPS_PERIOD_US    = 1000000; // 1 Hz (latest GPS telemetry)
 // ---- BLE ----
 constexpr char BLE_DEVICE_NAME[] = "NUCODE-HUD";
 constexpr uint32_t MAIN_IDLE_MS = 5;
-// UART NMEA GPS enabled; adjust baud rate for the actual module.
+// GPS is not fitted; enable when a compatible UART NMEA module is connected.
 #ifndef CFG_GPS
-#define CFG_GPS 1
+#define CFG_GPS 0
 #endif
 constexpr uint32_t GPS_STALE_MS = 3000;
 constexpr uint32_t IMU_RETRY_US = 2000000;

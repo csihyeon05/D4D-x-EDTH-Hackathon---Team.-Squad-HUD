@@ -3,89 +3,119 @@
 namespace {
 void low(uint8_t pin) { digitalWrite(pin, LOW); pinMode(pin, OUTPUT); }
 void release(uint8_t pin) { pinMode(pin, INPUT_PULLUP); }
-void halfCycle() { delayMicroseconds(5); }
+void halfCycle() { delayMicroseconds(10); }
 }
 bool I2cBus::clockHigh() {
-  release(PIN_WIRE_SCL);
-  while (!digitalRead(PIN_WIRE_SCL)) {
-    if ((uint32_t)(micros() - started_) >= 5000) return false;
-    // A stretched/stuck clock must not burn CPU for the full deadline.
-    // Other tasks and the RTOS idle task can run while the line is held low.
-    delay(1);
+  release(scl_);
+  uint8_t risePolls = 0;
+  while (!digitalRead(scl_)) {
+    if ((uint32_t)(millis() - started_) >= budgetMs_) { error_ = Error::ClockTimeout; return false; }
+    // Allow ordinary RC rise time without rounding every edge up to an RTOS tick.
+    // A genuinely stretched/stuck clock still yields after a bounded short wait.
+    if (risePolls++ < 25) delayMicroseconds(2);
+    else delay(1);
   }
   halfCycle();
-  return (uint32_t)(micros() - started_) < 5000;
+  if ((uint32_t)(millis() - started_) >= budgetMs_) { error_ = Error::Deadline; return false; }
+  return true;
 }
 void I2cBus::begin() {
-  release(PIN_WIRE_SDA); release(PIN_WIRE_SCL);
-  started_ = micros();
+  release(sda_); release(scl_);
+  error_ = Error::None; byteIndex_ = 0;
+  started_ = millis(); budgetMs_ = SHORT_TIMEOUT_MS;
   // Recover a slave interrupted in the middle of a byte.
-  for (uint8_t i = 0; i < 9 && !digitalRead(PIN_WIRE_SDA); ++i) {
-    low(PIN_WIRE_SCL); halfCycle();
+  for (uint8_t i = 0; i < 9 && !digitalRead(sda_); ++i) {
+    low(scl_); halfCycle();
     if (!clockHigh()) break;
   }
   stop();
 }
 bool I2cBus::start() {
-  release(PIN_WIRE_SDA); halfCycle();
-  if (!clockHigh() || !digitalRead(PIN_WIRE_SDA)) return false;
-  low(PIN_WIRE_SDA); halfCycle(); low(PIN_WIRE_SCL);
+  release(sda_); halfCycle();
+  if (!clockHigh() || !digitalRead(sda_)) return false;
+  low(sda_); halfCycle(); low(scl_);
   return true;
 }
 bool I2cBus::stop() {
-  low(PIN_WIRE_SCL); low(PIN_WIRE_SDA); halfCycle();
+  low(scl_); low(sda_); halfCycle();
   const bool clockReleased = clockHigh();
-  release(PIN_WIRE_SDA); halfCycle();
-  return clockReleased && digitalRead(PIN_WIRE_SDA);
+  release(sda_); halfCycle();
+  return clockReleased && digitalRead(sda_);
 }
 bool I2cBus::put(uint8_t value) {
   for (uint8_t mask = 0x80; mask; mask >>= 1) {
-    if (value & mask) release(PIN_WIRE_SDA); else low(PIN_WIRE_SDA);
+    if (value & mask) release(sda_); else low(sda_);
     halfCycle();
     if (!clockHigh()) return false;
-    low(PIN_WIRE_SCL);
+    low(scl_);
   }
-  release(PIN_WIRE_SDA); halfCycle();
+  release(sda_); halfCycle();
   if (!clockHigh()) return false;
-  bool ack = !digitalRead(PIN_WIRE_SDA);
-  low(PIN_WIRE_SCL);
+  bool ack = !digitalRead(sda_);
+  low(scl_);
   return ack;
 }
 bool I2cBus::get(uint8_t& value, bool ack) {
-  value = 0; release(PIN_WIRE_SDA);
+  value = 0; release(sda_);
   for (uint8_t i = 0; i < 8; ++i) {
     halfCycle();
     if (!clockHigh()) return false;
-    value = (value << 1) | digitalRead(PIN_WIRE_SDA);
-    low(PIN_WIRE_SCL);
+    value = (value << 1) | digitalRead(sda_);
+    low(scl_);
   }
-  if (ack) low(PIN_WIRE_SDA); else release(PIN_WIRE_SDA);
+  if (ack) low(sda_); else release(sda_);
   halfCycle();
   if (!clockHigh()) return false;
-  low(PIN_WIRE_SCL); release(PIN_WIRE_SDA);
+  low(scl_); release(sda_);
   return true;
+}
+bool I2cBus::probe(uint8_t address) {
+  if (address < 0x08 || address > 0x77) return false;
+  error_ = Error::None; byteIndex_ = 0;
+  started_ = millis(); budgetMs_ = SHORT_TIMEOUT_MS;
+  const bool ack = step(start(),Error::Start) && step(put(address << 1),Error::Address);
+  const Error firstError = error_;
+  const bool stopped = step(stop(),Error::Stop);
+  if (firstError != Error::None) error_ = firstError;
+  elapsedMs_ = millis() - started_;
+  return ack && stopped;
 }
 bool I2cBus::read(uint8_t address, uint8_t reg, uint8_t* data, uint8_t count) {
   if (address > 0x7F || !data || count == 0) return false;
-  started_ = micros();
-  bool ok = start() && put(address << 1) && put(reg) && start() && put((address << 1) | 1);
-  for (uint8_t i = 0; ok && i < count; ++i) ok = get(data[i], i + 1 < count);
-  const bool stopped = stop();
+  error_ = Error::None; byteIndex_ = 0;
+  started_ = millis(); budgetMs_ = count > 4 ? BURST_TIMEOUT_MS : SHORT_TIMEOUT_MS;
+  bool ok = step(start(),Error::Start) && step(put(address << 1),Error::Address)
+    && step(put(reg),Error::Register) && step(start(),Error::Restart)
+    && step(put((address << 1) | 1),Error::ReadAddress);
+  for (uint8_t i = 0; ok && i < count; ++i) { byteIndex_ = i; ok = step(get(data[i], i + 1 < count),Error::Data); }
+  const Error firstError = error_;
+  const bool stopped = step(stop(),Error::Stop);
+  if (firstError != Error::None) error_ = firstError;
+  elapsedMs_ = millis() - started_;
   return ok && stopped;
 }
 bool I2cBus::write(uint8_t address, uint8_t reg, uint8_t value) {
   if (address > 0x7F) return false;
-  started_ = micros();
-  bool ok = start() && put(address << 1) && put(reg) && put(value);
-  const bool stopped = stop();
+  error_ = Error::None; byteIndex_ = 0;
+  started_ = millis(); budgetMs_ = SHORT_TIMEOUT_MS;
+  bool ok = step(start(),Error::Start) && step(put(address << 1),Error::Address)
+    && step(put(reg),Error::Register) && step(put(value),Error::Data);
+  const Error firstError = error_;
+  const bool stopped = step(stop(),Error::Stop);
+  if (firstError != Error::None) error_ = firstError;
+  elapsedMs_ = millis() - started_;
   return ok && stopped;
 }
 
 bool I2cBus::writeBlock(uint8_t address, uint8_t reg, const uint8_t* data, uint8_t count) {
   if (address > 0x7F || !data || !count || count > 16) return false;
-  started_ = micros();
-  bool ok = start() && put(address << 1) && put(reg);
-  for (uint8_t i = 0; ok && i < count; ++i) ok = put(data[i]);
-  const bool stopped = stop();
+  error_ = Error::None; byteIndex_ = 0;
+  started_ = millis(); budgetMs_ = count > 4 ? BURST_TIMEOUT_MS : SHORT_TIMEOUT_MS;
+  bool ok = step(start(),Error::Start) && step(put(address << 1),Error::Address) && step(put(reg),Error::Register);
+  for (uint8_t i = 0; ok && i < count; ++i) ok = step(put(data[i]),Error::Data);
+  const Error firstError = error_;
+  const bool stopped = step(stop(),Error::Stop);
+  if (firstError != Error::None) error_ = firstError;
+  elapsedMs_ = millis() - started_;
   return ok && stopped;
 }

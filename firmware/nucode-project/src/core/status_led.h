@@ -1,7 +1,8 @@
 #pragma once
 #include <stdint.h>
 
-// Onboard RGB: cyan boot, blue ready, green connected, red faults.
+// Blue channel only: steady boot; one/two/three pulses for ready/connected/fault.
+// Red/green channels remain unused during sensor diagnostics.
 // Driven by loop(), so a stopped loop cannot keep emitting a healthy heartbeat.
 class StatusLed {
 public:

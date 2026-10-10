@@ -33,6 +33,10 @@ class ProtocolTests(unittest.TestCase):
             decode("orientation", struct.pack("<I4i", 0, 0, 0, 0, 0))
         p = decode("status", struct.pack("<IHHII", 0, 3, 64, 0, 0))
         self.assertTrue(p["dmp_initializing"])
+        self.assertFalse(p["raw_mode"])
+        raw = decode("status", struct.pack("<IHHII", 1, 3, 192, 0, 0))
+        self.assertTrue(raw["raw_mode"] and raw["imu_initializing"])
+        self.assertFalse(raw["dmp_initializing"])
         self.assertFalse(p["imu_online"])
     def test_no_fix(self):
         self.assertIsNone(decode("gps", struct.pack("<IiiiHBB", 0, 100, 200, 300, 5, 0, 0))["lat"])

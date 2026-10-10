@@ -41,6 +41,8 @@ def decode(kind, payload):
         if v[0] != 3:
             raise ValueError(f"Unsupported protocol version {v[0]}")
         out.update(version=v[0], flags=v[1], tx_dropped=v[2], sample_gaps=v[3])
-        for bit, name in enumerate(("imu_online", "analog_ready", "temp_valid", "bpm_valid", "gps_fix", "gps_enabled", "dmp_initializing")):
+        for bit, name in enumerate(("imu_online", "analog_ready", "temp_valid", "bpm_valid", "gps_fix", "gps_enabled", "imu_initializing", "raw_mode")):
             out[name] = bool(v[1] & (1 << bit))
+    if kind == "status":
+        out["dmp_initializing"] = out["imu_initializing"] and not out["raw_mode"]
     return out

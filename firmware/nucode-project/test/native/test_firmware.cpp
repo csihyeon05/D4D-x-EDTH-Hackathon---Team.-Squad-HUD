@@ -1,5 +1,6 @@
 #include <cassert>
 #include "config.h"
+#include "core/status_led.h"
 #include "sensors/mpu6050_decode.h"
 #include <cmath>
 #include <cstdio>
@@ -11,24 +12,29 @@
 #include "sensors/nmea_parser.h"
 #include "sensors/pulse_sensor.h"
 #include "sensors/tmp36.h"
-uint32_t nowMs = 0;
+uint32_t nowMs = 0, nowUs = 0;
+bool busTest = false;
 int adc = 0;
-uint32_t millis() { return nowMs; }
+uint32_t millis() { return busTest ? nowUs/1000 : nowMs; }
 int analogRead(uint8_t) { return adc; }
-uint32_t nowUs = 0;
 uint8_t pinModes[48]{};
+unsigned pinChanges[48]{}, pinWrites[48]{};
+uint32_t sclReleaseUs = 0;
+bool slowRise = false;
 int stuckPin = -1;
 int clockReads = 0, holdClockFromRead = -1;
 std::deque<int> sdaBits;
-void pinMode(uint8_t pin, uint8_t mode) { pinModes[pin] = mode; }
+void pinMode(uint8_t pin, uint8_t mode) { pinModes[pin] = mode; ++pinChanges[pin];
+  if (pin == PIN_WIRE_SCL && mode == INPUT_PULLUP) sclReleaseUs = nowUs; }
 uint32_t micros() { return nowUs++; }
 void delayMicroseconds(uint32_t us) { nowUs += us; }
 void delay(uint32_t ms) { nowUs += ms * 1000; }
-void digitalWrite(uint8_t, uint8_t) {}
+void digitalWrite(uint8_t pin, uint8_t) { ++pinWrites[pin]; }
 int digitalRead(uint8_t pin) {
   if (pin == stuckPin || pinModes[pin] == OUTPUT) return 0;
   if (pin == PIN_WIRE_SCL && ++clockReads >= holdClockFromRead && holdClockFromRead >= 0)
     return 0;
+  if (pin == PIN_WIRE_SCL && slowRise && uint32_t(nowUs - sclReleaseUs) < 8) return 0;
   if (pin == PIN_WIRE_SDA && !sdaBits.empty()) {
     const int bit = sdaBits.front(); sdaBits.pop_front(); return bit;
   }
@@ -123,12 +129,25 @@ int main() {
     gps.feed((char)(random >> 24), 1000);
   }
   feed(gps, sentence(gga), 10000); assert(gps.snapshot(10000).fix);
+  busTest = true;
   I2cBus bus;
   bus.begin(); uint8_t value = 0;
   assert(!bus.read(0x6A, 0x0F, &value, 1)); // No slave ACK.
+  sdaBits = {1, 0, 1}; assert(bus.probe(0x68)); assert(sdaBits.empty());
+  slowRise = true; const auto riseTestStart = nowUs;
+  sdaBits = {1, 0, 0, 0, 1}; assert(bus.write(0x68,0x6C,0));
+  assert(nowUs-riseTestStart < 2000); // Ordinary rise time must not incur 1ms per bit.
+  slowRise = false;
+  sdaBits = {1, 1, 1}; assert(!bus.probe(0x69)); assert(sdaBits.empty());
+  assert(bus.error()==I2cBus::Error::Address);
+  assert(!bus.probe(0) && !bus.probe(0x78));
   stuckPin = PIN_WIRE_SCL; nowUs = 0;
   assert(!bus.read(0x6A, 0x0F, &value, 1));
-  assert(nowUs >= 5000 && nowUs < 5100); // Stuck clock cannot hang firmware.
+  assert(bus.error()==I2cBus::Error::ClockTimeout);
+  assert(nowUs >= 20000 && nowUs < 21100); // Stuck clock cannot hang firmware.
+  uint8_t burst[14]{}; nowUs = 0;
+  assert(!bus.read(0x68, 0x3B, burst, sizeof(burst)));
+  assert(nowUs >= 50000 && nowUs < 51100); // Long reads remain bounded.
   stuckPin = PIN_WIRE_SDA; nowUs = 0; bus.begin();
   assert(!bus.write(0x6A, 0x10, 0x48));
   assert(nowUs < 5000);
@@ -151,10 +170,20 @@ int main() {
   sdaBits = {1, 0, 0, 0}; clockReads = 0; holdClockFromRead = 29;
   const uint32_t started = nowUs;
   assert(!bus.write(0x6A, 0x10, 0x38));
-  assert(nowUs - started < 6500); // Deadline + up to one sleeping RTOS tick.
+  assert(nowUs - started < 21500); // Deadline + up to one sleeping RTOS tick.
   holdClockFromRead = -1; sdaBits = {1, 0, 0, 0, 1};
   assert(bus.write(0x6A, 0x10, 0x38)); // Fault does not poison later transactions.
   sdaBits = {1, 0, 0, 0, 0};
   assert(!bus.write(0x6A, 0x10, 0x38)); // SDA must also release at STOP.
+  // LED updates must never touch either shared I2C pin.
+  const auto sdaModes = pinChanges[PIN_WIRE_SDA], sclModes = pinChanges[PIN_WIRE_SCL];
+  const auto sdaWrites = pinWrites[PIN_WIRE_SDA], sclWrites = pinWrites[PIN_WIRE_SCL];
+  StatusLed led; led.begin();
+  for (auto state : {StatusLed::State::Boot, StatusLed::State::Ready,
+                    StatusLed::State::Connected, StatusLed::State::SensorFault, StatusLed::State::Fatal})
+    for (unsigned t=0; t<2100; t+=10) led.update(state,t);
+  assert(pinChanges[PIN_WIRE_SDA]==sdaModes && pinChanges[PIN_WIRE_SCL]==sclModes);
+  assert(pinWrites[PIN_WIRE_SDA]==sdaWrites && pinWrites[PIN_WIRE_SCL]==sclWrites);
+  assert(pinWrites[STATUS_LED_BLUE]>0);
   puts("native firmware tests passed");
 }

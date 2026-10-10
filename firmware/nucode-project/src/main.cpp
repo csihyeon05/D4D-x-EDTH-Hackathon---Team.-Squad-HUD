@@ -35,34 +35,34 @@ void setup() {
 }
 void loop() {
   if (CFG_GPS) gps.poll();
-  if (retryTick.due(micros()) && !imu.active()) imu.begin();
+  if (retryTick.due(uint32_t(millis() * 1000U)) && !imu.active()) imu.begin();
   imu.poll();
-  if (imuTick.due(micros())) {
+  if (imuTick.due(uint32_t(millis() * 1000U))) {
     ImuPacket packet{};
     OrientationPacket orientation{};
     if (imu.read(packet, orientation)) {
       static Periodic serialImu(1000000);
-      if (serialImu.due(micros())) {
+      if (serialImu.due(uint32_t(millis() * 1000U))) {
         SerialTelemetry::print(packet);
-        SerialTelemetry::print(orientation);
+        if (imu.hasOrientation()) SerialTelemetry::print(orientation);
       }
-      if (bleReady) { ble.sendImu(packet); ble.sendOrientation(orientation); }
+      if (bleReady) { ble.sendImu(packet); if (imu.hasOrientation()) ble.sendOrientation(orientation); }
     }
   }
-  if (vitalsTick.due(micros())) {
+  if (vitalsTick.due(uint32_t(millis() * 1000U))) {
     if (analog.snapshot(vitals, sampleGaps)) {
       static Periodic serialVitals(1000000);
-      if (serialVitals.due(micros())) SerialTelemetry::print(vitals);
+      if (serialVitals.due(uint32_t(millis() * 1000U))) SerialTelemetry::print(vitals);
       if (bleReady) ble.sendVitals(vitals);
     }
   }
-  if (CFG_GPS && gpsTick.due(micros())) {
+  if (CFG_GPS && gpsTick.due(uint32_t(millis() * 1000U))) {
     GpsPacket packet{};
     gps.snapshot(packet);
     SerialTelemetry::print(packet);
     if (bleReady) ble.sendGps(packet);
   }
-  if (statusTick.due(micros())) {
+  if (statusTick.due(uint32_t(millis() * 1000U))) {
     GpsPacket position{};
     gps.snapshot(position);
     const bool freshAnalog = analogReady && (uint32_t)(millis() - vitals.t_ms) < 1000;
@@ -70,11 +70,12 @@ void loop() {
       | ((freshAnalog && vitals.temp_c_x100 != INT16_MIN) ? 4 : 0)
       | ((freshAnalog && vitals.bpm) ? 8 : 0)
       | (position.fix ? 16 : 0) | (CFG_GPS ? 32 : 0)
-      | ((imu.active() && !imu.ok()) ? 64 : 0);
+      | ((imu.active() && !imu.ok()) ? 64 : 0) | (CFG_IMU_DMP ? 0 : 128);
     StatusPacket packet{millis(), 3, flags, ble.dropped(), sampleGaps};
     if (bleReady) ble.sendStatus(packet);
     SerialTelemetry::print(packet);
-    LOG("DMP,state=%u,fifo_resets=%lu\n", unsigned(imu.state()), (unsigned long)imu.fifoResets());
+    LOG("IMU_STATS,samples=%lu,read_errors=%lu,starts=%lu\n", (unsigned long)imu.samples(), (unsigned long)imu.readErrors(), (unsigned long)imu.restarts());
+    LOG("IMU_STATE,mode=%s,state=%u,fifo_resets=%lu\n", CFG_IMU_DMP ? "DMP" : "raw", unsigned(imu.state()), (unsigned long)imu.fifoResets());
   }
   const uint32_t nowMs = millis();
   const bool settled = (uint32_t)(nowMs - readyMs) >= 1000;

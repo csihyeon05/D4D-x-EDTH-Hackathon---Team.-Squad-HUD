@@ -8,14 +8,19 @@
 
 uint32_t now = 0;
 uint32_t millis() { return now; }
+int digitalRead(uint8_t) { return 1; }
 void logMessage(const char*, ...) {}
 uint8_t registers_[256]{}, memory_[4096]{};
 uint8_t bank_ = 0, offset_ = 0;
+uint8_t expectedSda = PIN_WIRE_SDA;
 bool present = true, badVerify = false, nack = false, failTail = false;
 std::deque<uint8_t> fifo;
 void I2cBus::begin() {}
+bool I2cBus::probe(uint8_t address) {
+  return sdaPin() == expectedSda && present && !nack && address == 0x68;
+}
 bool I2cBus::write(uint8_t address, uint8_t reg, uint8_t value) {
-  if (!present || nack || address != 0x68) return false;
+  if (sdaPin() != expectedSda || !present || nack || address != 0x68) return false;
   registers_[reg] = value;
   if (reg == 0x6D) bank_ = value;
   if (reg == 0x6E) offset_ = value;
@@ -23,14 +28,14 @@ bool I2cBus::write(uint8_t address, uint8_t reg, uint8_t value) {
   return true;
 }
 bool I2cBus::writeBlock(uint8_t address, uint8_t reg, const uint8_t* data, uint8_t count) {
-  if (!present || nack || address != 0x68 || reg != 0x6F) return false;
+  if (sdaPin() != expectedSda || !present || nack || address != 0x68 || reg != 0x6F) return false;
   assert(count <= 16 && unsigned(offset_) + count <= 256);
   memcpy(memory_ + unsigned(bank_)*256 + offset_, data, count);
   offset_ += count;
   return true;
 }
 bool I2cBus::read(uint8_t address, uint8_t reg, uint8_t* data, uint8_t count) {
-  if (!present || nack || address != 0x68) return false;
+  if (sdaPin() != expectedSda || !present || nack || address != 0x68) return false;
   if (reg == 0x75) { *data = 0x68; return true; }
   if (reg == 0x6F) {
     memcpy(data, memory_ + unsigned(bank_)*256 + offset_, count);
@@ -66,7 +71,28 @@ void boot(Imu& imu) {
 }
 int main() {
   Imu imu;
+#if !CFG_IMU_DMP
+  assert(imu.begin());
+  for (int i=0;i<50 && !imu.ok();++i) tick(imu,5);
+  assert(imu.ok() && !imu.hasOrientation());
+  assert(registers_[0x1B]==0x18 && registers_[0x1C]==0 && registers_[0x6A]==0);
+  registers_[0x3A]=1; registers_[0x3F]=0x40; // +1g Z.
+  tick(imu,10);
+  ImuPacket raw; OrientationPacket q;
+  assert(imu.read(raw,q) && raw.az==16384 && q.w==0);
+  assert(imu.samples()==1 && imu.readErrors()==0 && imu.restarts()==1);
+  assert(!imu.read(raw,q));
+  nack=true; tick(imu,10); tick(imu,10); tick(imu,10);
+  assert(!imu.active());
+  assert(imu.samples()==1 && imu.readErrors()==3); nack=false;
+  assert(imu.begin());
+  for (int i=0;i<50 && !imu.ok();++i) tick(imu,5);
+  registers_[0x3A]=0; tick(imu,1001); assert(!imu.active());
+  puts("Raw IMU configuration, fresh data, failure and staleness tests passed");
+#else
   present=false; assert(!imu.begin() && !imu.active()); present=true;
+  expectedSda = PIN_WIRE_SCL; boot(imu); // Reversed wiring is detected and retained.
+  expectedSda = PIN_WIRE_SDA;
   badVerify=true; assert(imu.begin());
   for (int i=0; i<45; ++i) tick(imu,5);
   assert(!imu.active()); badVerify=false;
@@ -98,4 +124,5 @@ int main() {
   for (int i=0; i<1000; ++i) { packet(); tick(imu); }
   assert(imu.ok());
   puts("DMP state, firmware verification, stillness and FIFO recovery tests passed");
+#endif
 }
