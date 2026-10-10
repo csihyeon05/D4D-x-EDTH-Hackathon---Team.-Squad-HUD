@@ -32,6 +32,7 @@ Periodic nodeTick(NODE_PERIOD_US), retryTick(IMU_RETRY_US);
 node::ActivityMeter activity(ACCEL_G_PER_LSB);
 node::RawHeading rawHeading;
 bool headingValid = false;
+bool baselineApplied = false;
 node::Pdr pdr;
 node::PositionFusion position;
 node::NodeRules rules;
@@ -39,7 +40,7 @@ node::Baseline baseline;
 node::CheckinTimer checkins;
 uint16_t seq = 0;
 
-// Once per second: evaluate rules and send an alert or a due check-in.
+// Once per second: evaluate rules and publish the latest measurements.
 void nodeStep(uint32_t nowMs) {
   const uint32_t tS = nowMs / 1000;
   const node::ActivityMeter::Second motion = activity.roll();
@@ -53,11 +54,9 @@ void nodeStep(uint32_t nowMs) {
   const float hr = vitals.bpm, temp = vitals.temp_c_x100 / 100.0f;
 
   baseline.add(tS, hrValid, hr, tempValid, temp);
-  bool firstCheckin = false;
-  if (baseline.done() && !checkins.started()) {
+  if (baseline.done() && !baselineApplied) {
     rules.setBaseline(baseline.hrValid(), baseline.hrBpm(), baseline.tempValid(), baseline.skinTempC());
-    checkins.start(tS);
-    firstCheckin = true;
+    baselineApplied = true;
   }
 
   // An axis at the configured sensor limit hides the true peak; treat it as an impact.
@@ -71,7 +70,7 @@ void nodeStep(uint32_t nowMs) {
     packet.type = node::PacketType::Alert;
   } else if (checkins.due(tS)) {
     packet.type = node::PacketType::Checkin;
-    checkins.schedule(tS, random(-node::CHECKIN_JITTER_S, node::CHECKIN_JITTER_S + 1));
+    checkins.schedule(tS);
   } else {
     LOG("NODE,t_s=%lu,activity=%d,x_dm=%d,y_dm=%d,pos=%s,steps=%lu,baseline=%u,sample_gaps=%lu\n",
         (unsigned long)tS, motion.valid ? int(motion.activity) : -1,
@@ -81,15 +80,13 @@ void nodeStep(uint32_t nowMs) {
     return;
   }
 
-  // The first check-in carries the baseline, so commander and node agree on it.
-  const bool sendHr = firstCheckin ? baseline.hrValid() : hrValid;
-  const bool sendTemp = firstCheckin ? baseline.tempValid() : tempValid;
+  // Baseline collection must never delay or replace live measurements.
   packet.soldierId = SOLDIER_ID;
   packet.seq = ++seq;
   packet.tS = static_cast<uint16_t>(tS);
   packet.code = code;
-  packet.hrBpm = sendHr ? node::toByte(firstCheckin ? baseline.hrBpm() : hr) : node::HR_UNAVAILABLE;
-  packet.skinTempCx100 = sendTemp ? node::toInt16((firstCheckin ? baseline.skinTempC() : temp) * 100)
+  packet.hrBpm = hrValid ? node::toByte(hr) : node::HR_UNAVAILABLE;
+  packet.skinTempCx100 = tempValid ? vitals.temp_c_x100
                                   : node::TEMP_UNAVAILABLE;
   packet.activity = motion.valid ? node::toByte(motion.activity) : 0;
   const bool positionValid = position.usingGps() || (headingValid && imu.ok());
@@ -121,6 +118,7 @@ void setup() {
   position.setOrigin(AO_ORIGIN_LAT_E7, AO_ORIGIN_LON_E7);
 #endif
   readyMs = millis();
+  checkins.start(readyMs / 1000);
   LOG("[main] ready soldier=%u imu=%u analog=%u radio=%u\n", unsigned(SOLDIER_ID), imu.ok(), analogReady, radioReady);
 }
 

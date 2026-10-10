@@ -6,16 +6,16 @@ Change all three together, and bump `PROTOCOL_VERSION` when the packet layout ch
 
 ## 1. When a node transmits
 
-Nodes are radio-silent except for:
+Nodes send current display telemetry once per second:
 
 | Trigger | Packet type | Notes |
 |---|---|---|
 | Alert rule fires (section 3) | `ALERT` (0x1) | Same code not repeated within 60 s |
 | Report button pressed | `ALERT` (0x1) | `SITREP_CONTACT` or `SITREP_SOS` |
-| Check-in timer expires | `CHECKIN` (0x2) | Every 120 s ± 30 s random jitter |
-| Power-on | `CHECKIN` (0x2) | First check-in sets the resting baseline; soldier stands still |
+| Check-in timer expires | `CHECKIN` (0x2) | Every 1 s, without jitter |
+| Power-on | `CHECKIN` (0x2) | Live check-ins start without waiting for baseline collection |
 
-The check-in is the only periodic traffic: it lets the commander tell a quiet node from a lost one. The jitter avoids a fixed period an interceptor could detect.
+A check-in contains current BPM, temperature, activity and local position. Alerts replace the routine packet for that second. Local baseline averaging runs independently; the commander currently takes its first valid check-in values as its baseline. Raw waveforms are not transmitted. BLE advertisements are repeated for 300 ms to improve reception; delivery is not acknowledged.
 
 ## 2. Packet layout (18 bytes, little-endian)
 

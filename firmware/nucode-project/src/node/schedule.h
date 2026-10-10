@@ -1,12 +1,11 @@
 #pragma once
-// Power-on baseline and randomized check-in timing (docs/DATA_SPEC.md section 1).
+// Independent power-on baseline and live check-in timing.
 
 #include <stdint.h>
 
 namespace node {
 
-constexpr uint32_t CHECKIN_PERIOD_S = 120;
-constexpr int32_t CHECKIN_JITTER_S = 30;  // +/- around the period
+constexpr uint32_t CHECKIN_PERIOD_S = 1;
 
 // Resting heart rate and skin temperature, averaged while the soldier stands
 // still after power-on. Complete after BASELINE_SAMPLES valid seconds of both,
@@ -40,8 +39,8 @@ public:
   void start(uint32_t tS) { dueS_ = tS; started_ = true; }  // first check-in due now
   bool started() const { return started_; }
   bool due(uint32_t tS) const { return started_ && int32_t(tS - dueS_) >= 0; }
-  // jitterS: uniform random in [-CHECKIN_JITTER_S, CHECKIN_JITTER_S].
-  void schedule(uint32_t tS, int32_t jitterS) { dueS_ = tS + uint32_t(int32_t(CHECKIN_PERIOD_S) + jitterS); }
+  // Send current state once per second; never replay a delayed backlog.
+  void schedule(uint32_t tS) { dueS_ = tS + CHECKIN_PERIOD_S; }
 
 private:
   bool started_ = false;

@@ -3,7 +3,7 @@
 
 Node firmware for the NUCODE NU-87 Tiny DK (RTL8720DF) with either an MPU6050 or NU-IMU (LSM6DS3-family), TMP36GT9Z temperature sensor and optional analog Pulse Sensor. Phone GPS reaches the backend over Wi-Fi; UART GPS is disabled by default. Built with the official Realtek AmebaD **3.1.9** Arduino core, board **AMB26**.
 
-The node is radio-silent except for alerts and a randomized check-in. Each transmission is an 18-byte packet sent as a short burst of BLE advertisements to `commander-firmware`. Packet, rules and radio format: [docs/DATA_SPEC.md](../docs/DATA_SPEC.md).
+The node transmits current BPM, temperature, activity and position every second from startup. Alerts replace the routine packet for that second. Each transmission is an 18-byte packet sent as a short burst of BLE advertisements to `commander-firmware`. Packet, rules and radio format: [docs/DATA_SPEC.md](../docs/DATA_SPEC.md).
 
 ## Wiring
 
@@ -58,8 +58,8 @@ Phone GPS setup and backend payloads: [frontend handoff](../backend-handoff/READ
 
 At power-on the soldier stands still, facing north, while the node collects a resting baseline. (Until GPS has calibrated the heading, dead reckoning treats the startup direction as north.) Then:
 
-1. **Baseline:** resting heart rate and skin temperature are averaged over 20 valid seconds of each, or whatever was collected after 120 s. The first check-in carries these values, so the commander uses the same baseline.
-2. **Every second:** the node evaluates the alert rules (DATA_SPEC section 3) and sends an `ALERT` if one fires; otherwise a `CHECKIN` if due (every 120 s ± 30 s).
+1. **Baseline:** resting heart rate and skin temperature are averaged over 20 valid seconds of each, or whatever was collected after 120 s. This local alert baseline is collected independently of transmission. Every packet contains current measurements, including during baseline collection. The existing commander uses its first valid check-in values as its own baseline; these are not necessarily the local averages.
+2. **Every second:** the node evaluates the alert rules (DATA_SPEC section 3) and sends an `ALERT` if one fires; otherwise a `CHECKIN` every second. It does not wait for the baseline or replace current values with averages.
 3. **Each packet:** sent as non-connectable advertisements every 20–30 ms for 300 ms, then the radio stops. `seq` starts at a random value at boot, so a rebooted node is not mistaken for a duplicate.
 
 **Inputs to the rules:**
@@ -84,8 +84,8 @@ At power-on the soldier stands still, facing north, while the node collects a re
 | Pattern | Meaning |
 |---|---|
 | Steady cyan | Booting, or DMP loading / waiting for stillness |
-| 1 blue pulse every 2 s | Collecting baseline |
-| 2 green pulses every 2 s | Reporting (baseline sent, check-ins active) |
+| 1 blue pulse every 2 s | Starting live reporting |
+| 2 green pulses every 2 s | Reporting (live check-ins active) |
 | 3 red pulses every 2 s | Selected IMU offline or TMP36 reading invalid |
 | Fast red blinking | Analog task failed or readings stale |
 

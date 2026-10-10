@@ -10,7 +10,7 @@ All three projects below use the same 18-byte BLE advertisement protocol consume
 
 In a soldier project, run `sh tools/nu87.sh build` or `sh tools/nu87.sh upload /dev/ttyUSB0`. Profiles and IDs can be overridden with environment variables. Always match enabled analog sensors to actual wiring. Soldier debug UART is 9600 baud; commander USB output is 115200 baud.
 
-The commander forwards `PKT:<36 hex characters>,RSSI:<dBm>` to the backend. Set `C2_SOURCE=serial`, `C2_SERIAL_PORT` to the commander port and `C2_SERIAL_BAUD=115200`. The first check-in waits for baseline collection (up to 120 seconds); subsequent check-ins arrive every 120 ± 30 seconds unless an alert triggers earlier.
+The commander forwards `PKT:<36 hex characters>,RSSI:<dBm>` to the backend. Set `C2_SOURCE=serial`, `C2_SERIAL_PORT` to the commander port and `C2_SERIAL_BAUD=115200`. Current BPM, temperature, activity and position are sent every second from startup. Baseline collection does not block transmission; an alert replaces that second's routine check-in. This is a 1 Hz display update, not a raw pulse waveform stream. Phone GPS still enters the backend over Wi-Fi.
 
 The companion `codex/tristan-sensor-compat` branch fixes missing-reading handling in `tactical-c2`: heart rate 0, temperature -32768 and position -32768 become null. It preserves the wire layout. Without that backend fix, reception works but unavailable readings can appear as real values and corrupt PSI or map positions.
 

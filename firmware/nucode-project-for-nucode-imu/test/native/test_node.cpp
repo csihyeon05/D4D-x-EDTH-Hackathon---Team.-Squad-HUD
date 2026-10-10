@@ -153,10 +153,12 @@ void testSchedule() {
   CHECK(!c.due(5));
   c.start(5);
   CHECK(c.due(5));
-  c.schedule(5, -30);
-  CHECK(!c.due(94) && c.due(95));
-  c.schedule(UINT32_MAX - 10, 0);  // seconds counter wrap
-  CHECK(!c.due(UINT32_MAX) && c.due(CHECKIN_PERIOD_S - 11));
+  c.schedule(5);
+  CHECK(!c.due(5) && c.due(6));
+  c.schedule(UINT32_MAX);  // seconds counter wrap
+  CHECK(!c.due(UINT32_MAX) && c.due(0));
+  c.schedule(20);  // missed slots do not create a catch-up burst
+  CHECK(!c.due(20) && c.due(21));
 }
 
 RuleSample still(uint32_t t, float hr) {
