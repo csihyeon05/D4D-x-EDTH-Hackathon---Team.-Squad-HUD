@@ -5,6 +5,12 @@ void PulseSensor::begin() {
   pinMode(pin_, INPUT);
 }
 
+void PulseSensor::resetDetection(uint32_t now, int signal) {
+  thresh_ = peak_ = trough_ = signal;
+  amp_ = 0; first_ = true; second_ = false; pulse_ = false;
+  bpm_ = 0; ibi_ = 600; lastBeat_ = now;
+}
+
 void PulseSensor::sample() {
   const uint32_t sample = analogRead(pin_);
   raw_ = sample > 4095 ? 4095 : sample;
@@ -13,20 +19,30 @@ void PulseSensor::sample() {
   const uint32_t now = millis();
   // A long sampling gap invalidates the beat history; never invent samples.
   if (!sampled_ || (uint32_t)(now - previousMs_) > 20) {
-    thresh_ = peak_ = trough_ = 512;
-    first_ = true; second_ = false; pulse_ = false;
-    bpm_ = 0; ibi_ = 600; lastBeat_ = now;
+    resetDetection(now, sig);
   }
   sampled_ = true;
   previousMs_ = now;
   sampleCounter_ = now;
+  // Clipped optical waveforms cannot establish valid inter-beat intervals.
+  // Require one second clear of either rail before reacquiring beats.
+  if (raw_ <= ADC_SCALE / 100 || raw_ >= ADC_SCALE * 95 / 100) {
+    lastClippedMs_ = now;
+    clipping_ = true;
+  }
+  if (clipping_ && uint32_t(now - lastClippedMs_) < 1000) {
+    resetDetection(now, sig);
+    return;
+  }
+  clipping_ = false;
   const int32_t n = (int32_t)(sampleCounter_ - lastBeat_);
 
   if (sig < thresh_ && n > (ibi_ / 5) * 3 && sig < trough_) trough_ = sig;
   if (sig > thresh_ && sig > peak_) peak_ = sig;
 
   if (n > 250) {
-    if (sig > thresh_ && !pulse_ && n > (ibi_ / 5) * 3) {
+    if (sig > thresh_ && !pulse_ && n > (ibi_ / 5) * 3
+        && peak_ - trough_ >= 8) {
       pulse_ = true;
       ibi_ = (uint16_t)(sampleCounter_ - lastBeat_);
       lastBeat_ = sampleCounter_;
@@ -52,7 +68,7 @@ void PulseSensor::sample() {
     }
   }
 
-  if (sig < thresh_ && pulse_) {
+  if (sig <= thresh_ && pulse_) {
     pulse_ = false;
     amp_ = peak_ - trough_;
     thresh_ = amp_ / 2 + trough_;
@@ -61,13 +77,5 @@ void PulseSensor::sample() {
   }
 
   // Reset after 2.5 seconds without a detected beat.
-  if (n > 2500) {
-    thresh_ = peak_ = trough_ = 512;
-    lastBeat_ = sampleCounter_;
-    first_ = true;
-    second_ = false;
-    bpm_ = 0;
-    pulse_ = false;
-    ibi_ = 600;
-  }
+  if (n > 2500) resetDetection(now, sig);
 }

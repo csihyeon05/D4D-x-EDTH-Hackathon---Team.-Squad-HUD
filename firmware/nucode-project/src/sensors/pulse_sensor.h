@@ -15,6 +15,9 @@ public:
   uint16_t ibiMs() const { return ibi_; }
 
 private:
+  void resetDetection(uint32_t now, int signal);
+  uint32_t lastClippedMs_ = 0;
+  bool clipping_ = false;
   uint8_t  pin_;
   uint32_t previousMs_ = 0;
   bool sampled_ = false;

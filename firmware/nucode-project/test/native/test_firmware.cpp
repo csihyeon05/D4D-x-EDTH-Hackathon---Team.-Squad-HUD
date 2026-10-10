@@ -115,6 +115,26 @@ int main() {
   nowMs += 100; pulse.sample(); assert(pulse.bpm() == 0);
   for (nowMs = 11000; nowMs < 15000; nowMs += 2) { adc = 1800; pulse.sample(); }
   assert(pulse.bpm() == 0);
+  // DC offset must not prevent detection, and ADC noise must not become BPM.
+  PulseSensor offsetPulse(3), noise(3);
+  for (nowMs = 0; nowMs < 12000; nowMs += 2) {
+    adc = nowMs % 1000 >= 500 && nowMs % 1000 < 550 ? 3500 : 3200;
+    offsetPulse.sample();
+    adc = 2048 + ((nowMs / 2) % 5) * 4;
+    noise.sample();
+    assert(noise.bpm() == 0);
+  }
+  assert(offsetPulse.bpm() >= 59 && offsetPulse.bpm() <= 61);
+  // Clipping invalidates a previously valid BPM immediately and can recover.
+  nowMs += 2; adc=3930; offsetPulse.sample(); assert(offsetPulse.bpm()==0);
+  for (uint32_t elapsed=0; elapsed<12000; elapsed+=2) {
+    nowMs+=2;
+    adc = elapsed % 1000 >= 500 && elapsed % 1000 < 550 ? 3500 : 3200;
+    offsetPulse.sample();
+    if (elapsed<1000) assert(offsetPulse.bpm()==0);
+  }
+  assert(offsetPulse.bpm()>=59 && offsetPulse.bpm()<=61);
+  nowMs+=2; adc=10; offsetPulse.sample(); assert(offsetPulse.bpm()==0);
   PulseSensor jittered(3);
   for (uint32_t elapsed = 0; elapsed < 10000; elapsed += elapsed % 3 + 1) {
     nowMs = (UINT32_MAX - 6000U) + elapsed;
