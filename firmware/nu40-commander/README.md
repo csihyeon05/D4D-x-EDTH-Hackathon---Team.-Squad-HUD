@@ -17,7 +17,7 @@ Output: `PKT:<36 hexadecimal characters>,RSSI:<signed dBm>`. The integrated back
 
 LED: short heartbeat every two seconds, a 75 ms flash on a forwarded packet, rapid blinking on initialization failure. The scanner resumes after every report, including unrelated or invalid advertisements.
 
-A bounded 32-packet queue decouples scanning from USB. It can overflow while the USB host is absent or stalled; diagnostics report drops. CRC and version checks precede forwarding, and repeated soldier ID/sequence pairs are suppressed for 30 seconds. This protocol provides no encryption or authentication.
+A bounded 32-packet queue decouples scanning from USB. It can overflow while the USB host is absent or stalled; diagnostics report drops. Packets waiting five seconds are discarded, even without a USB host, so reconnection cannot publish an old backlog as current sensor data. CRC and version checks precede forwarding, and repeated soldier ID/sequence pairs are suppressed for 30 seconds. This protocol provides no encryption or authentication.
 
 Phone GPS goes directly to the backend over Wi-Fi. It is not received from this board. Missing values and local PDR coordinates retain the backend contract.
 
