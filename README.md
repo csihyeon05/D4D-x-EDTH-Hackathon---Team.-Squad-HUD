@@ -65,7 +65,7 @@ The repository holds the components of the system:
 │  Communication Status         │
 └───────────────────────────────┘
 
-         Phone GPS Input
+             GPS Input
                 │
                 ▼
            C2 Backend
